@@ -167,6 +167,17 @@ const AnimatedLogo = () => (
   </div>
 );
 
+const TutorialTooltip = ({ children, className, arrowClassName }: { children: React.ReactNode, className: string, arrowClassName: string }) => (
+  <motion.div 
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 0.7 }}
+    className={`absolute bg-blue-600/90 text-white p-3 text-xs rounded-xl shadow-2xl pointer-events-none font-sans tracking-normal text-left w-max z-[100] border border-blue-400 ${className}`}
+  >
+    {children}
+    <div className={`absolute border-[6px] border-transparent ${arrowClassName}`}></div>
+  </motion.div>
+);
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('etdrs');
   const [currentStage, setCurrentStage] = useState<Stage>('EYE_INIT');
@@ -184,6 +195,7 @@ export default function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [lastSavedSession, setLastSavedSession] = useState<string>('');
   const [startingEye, setStartingEye] = useState<Eye>('OD');
+  const [isTutorial, setIsTutorial] = useState(false);
 
   // Load history and theme on mount
   useEffect(() => {
@@ -310,208 +322,169 @@ export default function App() {
     handleNext(undefined, `HM w/ ${code}LPj`);
   };
 
-  const handleCorrectionChoice = (withCorrection: boolean) => {
-    setHasCorrection(withCorrection);
-    setRows(getInitialRows());
-    
-    // Check if OD is done. We need to look at current session state here.
-    const odSC = session['OD']?.['SC'];
-    const isODDone = odSC && (
-      (odSC.logMAR !== undefined && odSC.logMAR <= 0.0) ||
-      (odSC.nonLetter && (odSC.nonLetter.startsWith('HM') || odSC.nonLetter === 'LP' || odSC.nonLetter === 'NLP'))
-    );
+  const getNextStageContext = (currentSess: SessionData, corrState: boolean | null, bypassPHIntro: boolean = false): {eye?: Eye, mode?: TestMode, stage: Stage} => {
+    const e1 = startingEye;
+    const e2 = startingEye === 'OD' ? 'OS' : 'OD';
 
-    const osSC = session['OS']?.['SC'];
-    const isOSDone = osSC && (
-      (osSC.logMAR !== undefined && osSC.logMAR <= 0.0) ||
-      (osSC.nonLetter && (osSC.nonLetter.startsWith('HM') || osSC.nonLetter === 'LP' || osSC.nonLetter === 'NLP'))
-    );
+    const isTerminal = (eye: Eye, sess: SessionData) => {
+      const sc = sess[eye]?.['SC'];
+      if (sc) {
+        if (sc.logMAR !== undefined && sc.logMAR <= 0.0) return true;
+        if (sc.nonLetter && ['HM', 'LP', 'NLP'].some(prefix => sc.nonLetter!.toUpperCase().startsWith(prefix))) return true;
+      }
+      const cc = sess[eye]?.['CC'];
+      if (cc && cc.statusLabel !== 'NICC') {
+        if (cc.logMAR !== undefined && cc.logMAR <= 0.0) return true;
+        if (cc.nonLetter && ['HM', 'LP', 'NLP'].some(prefix => cc.nonLetter!.toUpperCase().startsWith(prefix))) return true;
+      }
+      return false;
+    };
 
-    // Bypass async state by using the value directly for the next step
-    if (withCorrection === true) {
-      if (isODDone) {
-        if (isOSDone) {
-          setCurrentStage('COLOR_CHOICE');
-        } else {
-          setCurrentEye('OS');
-          setCurrentMode('CC');
-          setCurrentStage('TEST_CC');
-        }
-      } else {
-        setCurrentEye('OD');
-        setCurrentMode('CC');
-        setCurrentStage('TEST_CC');
-      }
-    } else {
-      if (isODDone) {
-        if (isOSDone) {
-          setCurrentStage('COLOR_CHOICE');
-        } else {
-          setCurrentEye('OS');
-          setCurrentMode('SCPH');
-          setCurrentStage('TEST_PH');
-        }
-      } else {
-        setCurrentEye('OD');
-        setCurrentMode('SCPH');
-        setCurrentStage('TEST_PH');
-      }
+    // 1. SC Phase
+    if (!currentSess[e1]?.['SC']) return { eye: e1, mode: 'SC', stage: 'TEST_SC' };
+    if (!currentSess[e2]?.['SC']) return { eye: e2, mode: 'SC', stage: 'TEST_SC' };
+
+    const e1NeedsMore = !isTerminal(e1, currentSess);
+    const e2NeedsMore = !isTerminal(e2, currentSess);
+
+    if (!e1NeedsMore && !e2NeedsMore) return { stage: 'COLOR_CHOICE' };
+
+    // 2. Correction Check Phase
+    if (corrState === null) return { stage: 'CC_CHECK' };
+
+    // 3. CC Phase
+    if (corrState === true) {
+      if (e1NeedsMore && !currentSess[e1]?.['CC']) return { eye: e1, mode: 'CC', stage: 'TEST_CC' };
+      if (e2NeedsMore && !currentSess[e2]?.['CC']) return { eye: e2, mode: 'CC', stage: 'TEST_CC' };
     }
+
+    // 4. PH Phase
+    const phMode = corrState ? 'CCPH' : 'SCPH';
+    const anyPHData = Boolean(currentSess[e1]?.[phMode] || currentSess[e2]?.[phMode]);
+
+    if (!anyPHData && !bypassPHIntro && (e1NeedsMore || e2NeedsMore)) {
+      return { stage: 'TEST_PH_INTRO' };
+    }
+
+    if (e1NeedsMore && !currentSess[e1]?.[phMode]) return { eye: e1, mode: phMode, stage: 'TEST_PH' };
+    if (e2NeedsMore && !currentSess[e2]?.[phMode]) return { eye: e2, mode: phMode, stage: 'TEST_PH' };
+
+    return { stage: 'COLOR_CHOICE' };
   };
 
-  const saveCurrentVA = (logMAR?: number, nonLetter?: string) => {
-    // Check for NIPH and NICC logic
-    let statusLabel: 'NIPH' | 'NICC' | undefined = undefined;
-    
-    if (logMAR !== undefined) {
-      if (currentMode === 'CC') {
-        const scData = session[currentEye]?.['SC'];
-        if (scData && scData.logMAR !== undefined && logMAR >= scData.logMAR) {
-          statusLabel = 'NICC';
-        }
-      } else if (currentMode === 'SCPH') {
-        const scData = session[currentEye]?.['SC'];
-        if (scData && scData.logMAR !== undefined && logMAR >= scData.logMAR) {
-          statusLabel = 'NIPH';
-        }
-      } else if (currentMode === 'CCPH') {
-        const ccData = session[currentEye]?.['CC'];
-        if (ccData && ccData.logMAR !== undefined && logMAR >= ccData.logMAR) {
-          statusLabel = 'NIPH';
-        }
-      }
-    }
+  const advanceToNext = (nextContext: {eye?: Eye, mode?: TestMode, stage: Stage}) => {
+    if (nextContext.eye) setCurrentEye(nextContext.eye);
+    if (nextContext.mode) setCurrentMode(nextContext.mode);
+    if (nextContext.stage.startsWith('TEST_')) setRows(getInitialRows());
+    setCurrentStage(nextContext.stage);
+  };
 
-    setSession(prev => ({
-      ...prev,
-      [currentEye]: {
-        ...(prev[currentEye] || {}),
-        [currentMode]: {
-          logMAR,
-          nonLetter,
-          isCorrected: currentMode.startsWith('CC'),
-          testDistance,
-          statusLabel,
-        }
-      }
-    }));
+  const handleCorrectionChoice = (withCorrection: boolean) => {
+    setHasCorrection(withCorrection);
+    const nextContext = getNextStageContext(session, withCorrection);
+    advanceToNext(nextContext);
   };
 
   const handleNext = (overrideLogMAR?: number, overrideNonLetter?: string) => {
     const scrollContainer = document.getElementById('chart-container');
     if (scrollContainer) scrollContainer.scrollTop = 0;
 
+    if (currentStage === 'EYE_INIT') {
+      setCurrentStage('TEST_SC');
+      return;
+    }
+
+    if (currentStage === 'TEST_PH_INTRO') {
+      const nextContext = getNextStageContext(session, hasCorrection, true);
+      advanceToNext(nextContext);
+      return;
+    }
+
+    if (currentStage === 'COLOR_CHOICE' || currentStage === 'TEST_COLORS' || currentStage === 'TEST_ISHIHARA') {
+      if (activeTab === 'exam') {
+        setCurrentStage('EYE_INIT');
+      } else {
+        setCurrentStage('RESULTS');
+      }
+      return;
+    }
+
     const finalLogMAR = overrideLogMAR !== undefined ? overrideLogMAR : currentLogMAR;
     const finalNonLetter = overrideNonLetter !== undefined ? overrideNonLetter : undefined;
     
-    // Check if the eye is done based on the new incoming data
-    const checkIsDone = () => {
-      // If we are recording SC right now, use the new data
-      if (currentMode === 'SC' && currentStage === 'TEST_SC') {
-        if (finalLogMAR !== undefined && finalLogMAR <= 0.0) return true;
-        if (finalNonLetter) {
-          const nl = finalNonLetter.toUpperCase();
-          return nl.startsWith('HM') || nl === 'LP' || nl === 'NLP';
-        }
-        return false;
+    let statusLabel: 'NIPH' | 'NICC' | undefined = undefined;
+    if (finalLogMAR !== undefined) {
+      if (currentMode === 'CC') {
+        const scData = session[currentEye]?.['SC'];
+        if (scData && scData.logMAR !== undefined && finalLogMAR >= scData.logMAR) statusLabel = 'NICC';
+      } else if (currentMode === 'SCPH') {
+        const scData = session[currentEye]?.['SC'];
+        if (scData && scData.logMAR !== undefined && finalLogMAR >= scData.logMAR) statusLabel = 'NIPH';
+      } else if (currentMode === 'CCPH') {
+        const ccData = session[currentEye]?.['CC'];
+        if (ccData && ccData.logMAR !== undefined && finalLogMAR >= ccData.logMAR) statusLabel = 'NIPH';
       }
-      // Otherwise use the stored SC data
-      return isEyeDone(currentEye);
+    }
+
+    const updatedSession = {
+      ...session,
+      [currentEye]: {
+        ...(session[currentEye] || {}),
+        [currentMode]: {
+          logMAR: finalLogMAR,
+          nonLetter: finalNonLetter,
+          isCorrected: currentMode.startsWith('CC'),
+          testDistance,
+          statusLabel,
+          gridState: JSON.parse(JSON.stringify(rows)),
+        }
+      }
     };
 
-    const isCurrentDone = checkIsDone();
-    const is2020 = finalLogMAR !== undefined && finalLogMAR <= 0.0;
-    const nextEye = currentEye === 'OD' ? 'OS' : 'OD';
-
-    switch (currentStage) {
-      case 'EYE_INIT':
-        setCurrentStage('TEST_SC');
-        break;
-      case 'TEST_SC':
-        saveCurrentVA(overrideLogMAR !== undefined ? overrideLogMAR : (overrideNonLetter ? undefined : currentLogMAR), overrideNonLetter);
-        
-        if (isCurrentDone) {
-          if (!session[nextEye]?.['SC']) {
-            setCurrentEye(nextEye);
-            setRows(getInitialRows());
-            setCurrentStage('SWITCH_EYE');
-          } else {
-            setCurrentStage('COLOR_CHOICE');
-          }
-        } else {
-          if (!session[nextEye]?.['SC']) {
-            setCurrentEye(nextEye);
-            setRows(getInitialRows());
-            setCurrentStage('SWITCH_EYE');
-          } else {
-            setCurrentStage('CC_CHECK');
-          }
-        }
-        break;
-      case 'SWITCH_EYE':
-        setCurrentStage('TEST_SC');
-        break;
-      case 'CC_CHECK':
-        break;
-      case 'TEST_CC':
-        saveCurrentVA(overrideLogMAR !== undefined ? overrideLogMAR : (overrideNonLetter ? undefined : currentLogMAR), overrideNonLetter);
-        if (is2020 || (finalNonLetter && (finalNonLetter.toUpperCase().startsWith('HM') || finalNonLetter === 'LP' || finalNonLetter === 'NLP'))) {
-          goToNextAfterCC();
-        } else {
-          setCurrentMode('CCPH');
-          setRows(getInitialRows());
-          setCurrentStage('TEST_PH');
-        }
-        break;
-      case 'TEST_PH':
-        saveCurrentVA(overrideLogMAR !== undefined ? overrideLogMAR : (overrideNonLetter ? undefined : currentLogMAR), overrideNonLetter);
-        goToNextAfterPH();
-        break;
-      case 'COLOR_CHOICE':
-      case 'TEST_COLORS':
-      case 'TEST_ISHIHARA':
-        if (activeTab === 'exam') {
-          // If in standalone mode, stay in colors tab
-          setCurrentStage('EYE_INIT');
-        } else {
-          setCurrentStage('RESULTS');
-        }
-        break;
-    }
+    setSession(updatedSession);
+    const nextContext = getNextStageContext(updatedSession, hasCorrection);
+    advanceToNext(nextContext);
   };
 
-  const goToNextAfterCC = () => {
-    const nextEye = currentEye === 'OD' ? 'OS' : 'OD';
-    if (!session[nextEye]?.['CC'] && !isEyeDone(nextEye)) {
-      setCurrentEye(nextEye);
-      setCurrentMode('CC');
-      setRows(getInitialRows());
-      setCurrentStage('TEST_CC');
-    } else {
-      setCurrentStage('COLOR_CHOICE');
+  const getBacktrackSteps = () => {
+    if (isTutorial) {
+      return [
+        {eye: 'OD', mode: 'SC'},
+        {eye: 'OS', mode: 'SC'}
+      ] as {eye: Eye, mode: TestMode}[];
     }
-  };
 
-  const goToNextAfterPH = () => {
-    const nextEye = currentEye === 'OD' ? 'OS' : 'OD';
-    if (!session[nextEye]?.['CC'] && !session[nextEye]?.['SCPH'] && !isEyeDone(nextEye)) {
-      if (hasCorrection === true) {
-        setCurrentEye(nextEye);
-        setCurrentMode('CC');
-        setRows(getInitialRows());
-        setCurrentStage('TEST_CC');
+    const steps: {eye: Eye, mode: TestMode}[] = [];
+    const e1 = startingEye;
+    const e2 = startingEye === 'OD' ? 'OS' : 'OD';
+
+    const testModes: TestMode[] = ['SC'];
+    if (hasCorrection === true) testModes.push('CC');
+    const phMode = hasCorrection ? 'CCPH' : 'SCPH';
+    // We only push PH onto the sequence if not bypassed... but since anyone COULD be tested for PH, we just add it to sequence.
+    testModes.push(phMode);
+
+    const sequence: {eye: Eye, mode: TestMode}[] = [];
+    for (const mode of testModes) {
+      sequence.push({eye: e1, mode});
+      sequence.push({eye: e2, mode});
+    }
+
+    for (const step of sequence) {
+      const hasData = session[step.eye]?.[step.mode] !== undefined;
+      const isActive = currentEye === step.eye && currentMode === step.mode && currentStage.startsWith('TEST_');
+      
+      if (hasData || isActive) {
+        steps.push(step);
       } else {
-        setCurrentEye(nextEye);
-        setCurrentMode('SCPH');
-        setRows(getInitialRows());
-        setCurrentStage('TEST_PH');
+        break;
       }
-    } else {
-      setCurrentStage('COLOR_CHOICE');
     }
+    return steps;
   };
 
   const restart = () => {
+    setIsTutorial(false);
     setCurrentStage('EYE_INIT');
     setCurrentEye('OD');
     setCurrentMode('SC');
@@ -529,7 +502,7 @@ export default function App() {
   return (
     <div className={`flex flex-col h-screen font-sans overflow-hidden transition-colors duration-300 ${theme === 'light' ? 'bg-white text-slate-900' : 'bg-zinc-950 text-white'}`} style={{ backgroundColor: 'var(--theme-bg)', color: 'var(--theme-text)' }}>
       {/* Main Content */}
-      <main className={`flex-1 relative ${activeTab === 'etdrs' && currentStage === 'EYE_INIT' ? 'overflow-hidden' : 'overflow-y-auto'}`} style={{ backgroundColor: 'var(--theme-bg)' }} id="chart-container">
+      <main className="flex-1 relative overflow-y-auto" style={{ backgroundColor: 'var(--theme-bg)' }} id="chart-container">
         {/* Color Tests (Standalone or Exam) */}
         <AnimatePresence>
           {currentStage === 'TEST_COLORS' && (
@@ -609,7 +582,7 @@ export default function App() {
                       if (info.offset.x < -50 && colorTestIndex < 15) setColorTestIndex(prev => prev + 1);
                       if (info.offset.x > 50 && colorTestIndex > 0) setColorTestIndex(prev => prev - 1);
                     }}
-                    className="absolute inset-6 rounded-full border-8 border-theme-border overflow-hidden flex items-center justify-center bg-white shadow-2xl"
+                    className="absolute inset-6 rounded-full border-8 border-theme-border overflow-hidden flex items-center justify-center bg-white"
                   >
                      <img 
                       src={`./ishihara/plate${colorTestIndex + 1}.png`}
@@ -644,7 +617,7 @@ export default function App() {
         </AnimatePresence>
 
         {activeTab === 'etdrs' ? (
-          <div className="max-w-2xl mx-auto p-6 min-h-full flex flex-col">
+          <div className="max-w-xl mx-auto px-1.5 pt-4 pb-0 w-full min-h-full flex flex-col">
             <AnimatePresence mode="wait">
               {currentStage === 'EYE_INIT' && (
                 <motion.div 
@@ -652,7 +625,7 @@ export default function App() {
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 1.05 }}
-                  className="flex flex-col items-center justify-center py-12 text-center space-y-12 h-full"
+                  className="flex flex-col items-center justify-center py-6 text-center space-y-8 min-h-full"
                 >
                   <AnimatedLogo />
 
@@ -687,6 +660,21 @@ export default function App() {
                       <span className="relative z-10 flex items-center gap-2 uppercase">Start with OS <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" /></span>
                     </button>
                   </div>
+                  
+                  <button 
+                    onClick={() => {
+                      setIsTutorial(true);
+                      setStartingEye('OD');
+                      setCurrentEye('OD');
+                      setCurrentMode('SC');
+                      setRows(getInitialRows());
+                      setCurrentStage('TEST_SC');
+                      setTestDistance(4);
+                    }}
+                    className="px-6 py-2 rounded-full border border-theme-border text-theme-dim text-xs font-black uppercase tracking-widest hover:text-white transition-colors"
+                  >
+                    Tutorial Mode
+                  </button>
                 </motion.div>
               )}
 
@@ -754,89 +742,188 @@ export default function App() {
                     )}
                   </AnimatePresence>
 
-                  {/* Testing Distance Selector */}
-                  <div className="bg-theme-surface border border-theme-border rounded-xl p-1 flex gap-1 mb-1">
-                    {[4, 2, 1, 0.5].map(d => (
-                      <button
-                        key={d}
-                        onClick={() => setTestDistance(d)}
-                        className={`flex-1 py-2 rounded-lg font-black text-sm transition-all border ${
-                          testDistance === d 
-                          ? 'bg-theme-primary text-white border-theme-primary shadow-[0_0_15px_-5px_var(--primary)]' 
-                          : 'bg-theme-bg text-theme-dim border-theme-border hover:border-theme-dim'
-                        }`}
+                  {/* Backtrack Breadcrumbs */}
+                  <div className="flex flex-wrap gap-2 mb-4 relative z-10 w-full mt-4">
+                    {isTutorial && (
+                      <TutorialTooltip
+                         className="left-0 top-full mt-3"
+                         arrowClassName="bottom-full left-6 border-b-blue-600/90"
                       >
-                        {d === 0.5 ? '1/2m' : `${d}m`}
-                      </button>
-                    ))}
+                        <span className="font-black">Tabs:</span> Review tabs to backtrack<br/>or edit previous stages.
+                      </TutorialTooltip>
+                    )}
+                    {getBacktrackSteps().map(step => {
+                      const isActive = currentEye === step.eye && currentMode === step.mode;
+                      return (
+                        <button
+                          key={`${step.eye}-${step.mode}`}
+                          onClick={() => {
+                            if (!isActive) {
+                              setSession(prev => ({
+                                ...prev,
+                                [currentEye]: {
+                                  ...(prev[currentEye] || {}),
+                                  [currentMode]: {
+                                    ...(prev[currentEye]?.[currentMode] || {}),
+                                    logMAR: currentLogMAR,
+                                    isCorrected: currentMode.startsWith('CC'),
+                                    testDistance,
+                                    gridState: JSON.parse(JSON.stringify(rows))
+                                  }
+                                }
+                              }));
+                              setCurrentEye(step.eye);
+                              setCurrentMode(step.mode);
+                              const stepData = session[step.eye]?.[step.mode];
+                              if (stepData?.gridState) {
+                                setRows(JSON.parse(JSON.stringify(stepData.gridState)));
+                              } else {
+                                setRows(getInitialRows());
+                              }
+                              if (stepData?.testDistance) {
+                                setTestDistance(stepData.testDistance);
+                              }
+                              const stage = step.mode === 'SC' ? 'TEST_SC' : step.mode === 'CC' ? 'TEST_CC' : 'TEST_PH';
+                              setCurrentStage(stage);
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all border ${
+                            isActive 
+                            ? 'bg-theme-primary text-white border-theme-primary shadow-lg shadow-theme-primary/30' 
+                            : 'bg-theme-surface text-theme-dim border-theme-border hover:border-theme-primary/50'
+                          }`}
+                        >
+                          {step.eye} {step.mode}
+                        </button>
+                      );
+                    })}
                   </div>
 
-                  <div className="bg-theme-surface rounded-[24px] p-2 shadow-2xl border border-theme-border">
-                    <table className="w-full border-separate border-spacing-y-2">
-                      <tbody>
-                        {rows.map((row, rIdx) => (
-                          <tr key={rIdx} className={`transition-colors rounded-lg group ${row.letters.every(l => l.correct) ? 'bg-theme-primary/5' : ''}`}>
-                            <td className="w-6 align-middle">
-                              <button 
-                                onClick={() => selectRowAndAbove(rIdx)}
-                                style={{ height: rIdx < 11 ? '30px' : '15px' }}
-                                className={`w-6 rounded-md flex items-center justify-center transition-all border ${
-                                  row.letters.every(l => l.correct) 
-                                  ? 'bg-theme-primary text-white border-theme-primary shadow-[0_0_15px_-5px_rgba(59,130,246,0.6)]' 
-                                  : 'bg-theme-bg text-theme-dim border-theme-border hover:border-theme-dim'
-                                }`}
-                              >
-                                <span className="text-[10px] font-black">{row.lineNum}</span>
-                              </button>
-                            </td>
-                            <td className="px-2 py-0">
-                              <div className="flex justify-between items-center gap-1 leading-none">
-                                {row.letters.map((letter, lIdx) => (
-                                  <button
-                                    key={lIdx}
-                                    onClick={() => toggleLetter(rIdx, lIdx)}
-                                    style={{ 
-                                      fontSize: rIdx < 11 ? '30px' : '15px',
-                                      lineHeight: 1 
-                                    }}
-                                    className={`flex-1 font-bold transition-all rounded-md ${
-                                      letter.correct 
-                                      ? 'text-theme-accent opacity-100 letter-shadow scale-110' 
-                                      : 'text-theme-text opacity-20 hover:opacity-40'
-                                    }`}
-                                  >
-                                    {letter.char}
-                                  </button>
-                                ))}
-                              </div>
-                            </td>
-                          </tr>
+                  <div className="flex gap-1 w-full items-stretch">
+                    {/* Left: Chart */}
+                    <div className="flex-1 bg-theme-surface rounded-[24px] p-2 shadow-2xl border border-theme-border">
+                      <table className="w-full border-separate border-spacing-y-2">
+                        <tbody>
+                          {rows.map((row, rIdx) => (
+                            <tr key={rIdx} className={`transition-colors rounded-lg group ${row.letters.every(l => l.correct) ? 'bg-theme-primary/5' : ''}`}>
+                              <td className="w-6 align-middle">
+                                <button 
+                                  onClick={() => selectRowAndAbove(rIdx)}
+                                  style={{ height: rIdx < 11 ? '30px' : '15px' }}
+                                  className={`relative w-6 rounded-md flex items-center justify-center transition-all border ${
+                                    row.letters.every(l => l.correct) 
+                                    ? 'bg-theme-primary text-white border-theme-primary shadow-[0_0_15px_-5px_rgba(59,130,246,0.6)]' 
+                                    : 'bg-theme-bg text-theme-dim border-theme-border hover:border-theme-dim'
+                                  }`}
+                                >
+                                  <span className="text-[10px] font-black">{row.lineNum}</span>
+                                  {isTutorial && rIdx === 4 && (
+                                    <TutorialTooltip
+                                      className="top-1/2 left-full ml-3 -translate-y-1/2"
+                                      arrowClassName="top-1/2 right-full border-r-blue-600/90 -translate-y-1/2"
+                                    >
+                                      <span className="font-black text-xs">Line Number</span><br/>Click to highlight this line<br/>and all above it.
+                                    </TutorialTooltip>
+                                  )}
+                                </button>
+                              </td>
+                              <td className="px-2 py-0">
+                                <div className="flex justify-between items-center gap-1 leading-none">
+                                  {row.letters.map((letter, lIdx) => (
+                                    <button
+                                      key={lIdx}
+                                      onClick={() => toggleLetter(rIdx, lIdx)}
+                                      style={{ 
+                                        fontSize: rIdx < 11 ? '30px' : '15px',
+                                        lineHeight: 1 
+                                      }}
+                                      className={`flex-1 font-bold transition-all rounded-md relative ${
+                                        letter.correct 
+                                        ? 'text-theme-accent opacity-100 letter-shadow scale-110' 
+                                        : 'text-theme-text opacity-20 hover:opacity-40'
+                                      }`}
+                                    >
+                                      {letter.char}
+                                      {isTutorial && rIdx === 4 && lIdx === 2 && (
+                                        <TutorialTooltip
+                                          className="bottom-full left-1/2 mb-3 -translate-x-1/2"
+                                          arrowClassName="top-full left-1/2 border-t-blue-600/90 -translate-x-1/2"
+                                        >
+                                          <span className="font-black text-xs">Individual Letter</span><br/>Click to toggle it singly.
+                                        </TutorialTooltip>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Right: Testing Distance Selector Slider (w-16 to match Proceed button width) */}
+                    <div className="w-[64px] shrink-0 bg-theme-surface rounded-[24px] border border-theme-border p-1.5 flex flex-col relative shadow-inner">
+                      {isTutorial && (
+                        <TutorialTooltip
+                          className="right-full top-1/2 mr-3 -translate-y-1/2"
+                          arrowClassName="top-1/2 left-full border-l-blue-600/90 -translate-y-1/2"
+                        >
+                          <span className="font-black">Distance Slider</span><br/>Select test distance
+                        </TutorialTooltip>
+                      )}
+                      <div className="absolute inset-0 flex flex-col p-1.5">
+                        {[4, 2, 1, 0.5].map((d) => (
+                          <div key={`track-[${d}]`} className="flex-1 relative">
+                            {testDistance === d && (
+                              <motion.div 
+                                layoutId="vertical-slider-thumb"
+                                className="absolute inset-0 bg-theme-primary rounded-xl shadow-[0_0_20px_-5px_var(--primary)]"
+                                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                              />
+                            )}
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
+                      </div>
+                      
+                      {[4, 2, 1, 0.5].map((d) => (
+                        <button
+                          key={`btn-${d}`}
+                          onClick={() => setTestDistance(d)}
+                          className={`relative z-10 flex-1 flex flex-col items-center justify-center font-black transition-colors ${
+                            testDistance === d ? 'text-white' : 'text-theme-dim hover:text-white/50'
+                          }`}
+                        >
+                          <span className="text-[11px] uppercase tracking-widest">{d === 0.5 ? '1/2m' : `${d}m`}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </motion.div>
               )}
 
-              {currentStage === 'SWITCH_EYE' && (
+              {currentStage === 'TEST_PH_INTRO' && (
                 <motion.div 
-                   key="switch"
+                   key="ph-intro"
                    initial={{ opacity: 0, scale: 0.95 }}
                    animate={{ opacity: 1, scale: 1 }}
                    className="flex flex-col items-center justify-center py-20 text-center space-y-8 h-full"
                 >
-                  <div className="w-24 h-24 bg-theme-surface border border-theme-border text-theme-primary rounded-full flex items-center justify-center shadow-2xl">
-                    <RefreshCcw size={48} className="animate-spin-slow" />
+                  <div className="relative flex items-center justify-center mt-6">
+                    <div className="w-1 h-20 bg-theme-text/80 rounded-t-lg absolute bottom-[80%]" />
+                    <div className="w-24 h-24 bg-theme-text rounded-full flex items-center justify-center shadow-2xl z-10 border-4 border-theme-surface">
+                      <div className="w-2 h-2 bg-theme-bg rounded-full shadow-[0_0_10px_white]" />
+                    </div>
                   </div>
                   <div>
-                    <h2 className="text-3xl font-black tracking-tighter uppercase italic text-theme-text">Switch to OS</h2>
-                    <p className="text-theme-dim mt-3 max-w-xs mx-auto text-lg">Occlude Right Eye (OD). <br/>Continue Left Eye (OS) testing.</p>
+                    <h2 className="text-3xl font-black tracking-tighter uppercase italic text-theme-text mt-4">Pinhole Testing</h2>
+                    <p className="text-theme-dim mt-3 max-w-xs mx-auto text-lg leading-relaxed">Please place the pinhole occluder over the patient's eye.</p>
                   </div>
                   <button 
                     onClick={() => handleNext()}
-                    className="w-full max-w-xs bg-theme-primary text-white font-black py-6 rounded-3xl shadow-xl transition-all active:scale-95 text-lg uppercase tracking-widest"
+                    className="w-full max-w-xs bg-theme-primary text-white font-black py-6 rounded-3xl shadow-xl transition-all active:scale-95 text-lg uppercase tracking-widest mt-4"
                   >
-                    Continue
+                    Start Pinhole
                   </button>
                 </motion.div>
               )}
@@ -1184,33 +1271,50 @@ export default function App() {
         )}
       </main>
 
-      {/* Footer / Floating Action */}
+       {/* Footer / Floating Action */}
       {(activeTab === 'etdrs' && currentStage.startsWith('TEST_')) && (
-        <div className="sticky bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-theme-bg via-theme-bg/90 to-transparent pointer-events-none pb-1">
+        <div className="sticky bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-theme-bg via-theme-bg/90 to-transparent pointer-events-none pb-1 z-50">
           <motion.div 
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="max-w-xl mx-auto flex items-center gap-1 pointer-events-auto"
+            className="max-w-xl mx-auto flex items-center gap-1 pointer-events-auto relative"
           >
+            {isTutorial && (
+              <TutorialTooltip
+                className="bottom-full left-4 mb-3"
+                arrowClassName="top-full left-6 border-t-blue-600/90"
+              >
+                <span className="font-black">Notation</span><br/>Click to switch between<br/>Snellen & LogMAR
+              </TutorialTooltip>
+            )}
+            {isTutorial && (
+              <TutorialTooltip
+                className="bottom-full right-4 mb-3"
+                arrowClassName="top-full right-8 border-t-blue-600/90"
+              >
+                <span className="font-black text-xs block mb-1">Low Vision</span>
+                CF (Count Fingers)<br/>HM (Hand Motion)<br/>LP (Light Perception)<br/>NLP (No Light Perception)
+              </TutorialTooltip>
+            )}
             <div className="flex-1 bg-theme-surface rounded-xl p-1.5 shadow-2xl border border-theme-border flex justify-between items-center overflow-hidden relative min-h-[64px]">
                <div className="absolute top-0 left-0 w-1 h-full bg-theme-primary" />
                <div className="flex items-center gap-3 pl-1 w-full">
                   <button 
                     onClick={() => setNotationMode(prev => prev === 'snellen' ? 'logmar' : 'snellen')}
-                    className="flex flex-col min-w-[75px] text-left hover:opacity-80 transition-opacity active:scale-95"
+                    className="flex flex-col min-w-[75px] text-left hover:opacity-80 transition-opacity active:scale-95 pr-2 relative"
                   >
                     <div className="flex items-center gap-1 mb-0.5">
-                      <span className="text-[7px] font-black text-theme-dim uppercase tracking-widest leading-none">
-                        {currentEye} • {currentMode} • <span className="text-theme-primary">{notationMode}</span>
+                      <span className="text-xs font-black text-theme-primary uppercase tracking-[0.2em] leading-none">
+                        {currentEye} {currentMode}
                       </span>
                     </div>
-                    <span className="text-xl font-black text-theme-primary tracking-tighter font-mono leading-none">
+                    <span className="text-3xl font-black text-theme-text tracking-tighter font-mono leading-none mt-1">
                       {notationMode === 'snellen' ? logMARToSnellen(currentLogMAR) : currentLogMAR}
                     </span>
                   </button>
 
                   {/* Expanded Non-letter VA Buttons */}
-                  <div className="grid grid-cols-4 gap-1 flex-1">
+                  <div className="grid grid-cols-4 gap-1 flex-1 relative">
                     {(['CF', 'HM', 'LP', 'NLP'] as NonLetterVA[]).map(va => (
                       <button
                         key={va}
@@ -1230,6 +1334,18 @@ export default function App() {
               <ChevronRight size={28} />
             </button>
           </motion.div>
+        </div>
+      )}
+
+      {/* Tutorial Close Overlay */}
+      {isTutorial && (
+        <div className="fixed top-4 right-4 z-[200]">
+          <button 
+            onClick={() => { setIsTutorial(false); restart(); }}
+            className={`px-6 py-3 rounded-full font-black shadow-2xl active:scale-95 text-xs uppercase tracking-widest transition-all flex items-center gap-2 border-2 ${theme === 'light' ? 'bg-red-500 text-white border-red-600 hover:bg-red-600' : 'bg-white text-zinc-900 border-white/20 hover:bg-zinc-200'}`}
+          >
+            End Tutorial
+          </button>
         </div>
       )}
 
