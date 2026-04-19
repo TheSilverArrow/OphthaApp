@@ -21,6 +21,7 @@ export interface VAData {
   testDistance: number; // in meters (0.5, 1, 2, 4)
   notes?: string;
   statusLabel?: 'NIPH' | 'NICC'; // New labels for no improvement
+  gridState?: Row[];
 }
 
 export interface SessionData {
@@ -32,9 +33,9 @@ export interface SessionData {
 export type Stage = 
   | 'EYE_INIT'
   | 'TEST_SC'
-  | 'SWITCH_EYE'
   | 'CC_CHECK'
   | 'TEST_CC'
+  | 'TEST_PH_INTRO'
   | 'TEST_PH'
   | 'COLOR_CHOICE'
   | 'TEST_COLORS'
