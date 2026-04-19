@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+:root {
+  --theme-bg: #0a0a0c;
+  --theme-surface: #16161a;
+  --theme-border: #2d2d35;
+  --theme-dim: #94a3b8;
+  --theme-primary: #3b82f6;
+  --theme-accent: #10b981;
+  --theme-text: #ffffff;
+}
+
+:root.light-theme {
+  --theme-bg: #ffffff;
+  --theme-surface: #f8fafc;
+  --theme-border: #e2e8f0;
+  --theme-dim: #64748b;
+  --theme-primary: #1e2a56;
+  --theme-accent: #047857;
+  --theme-text: #020617;
+}
+
+@theme {
+  --animate-spin-slow: spin 3s linear infinite;
+  --color-theme-bg: var(--theme-bg);
+  --color-theme-surface: var(--theme-surface);
+  --color-theme-border: var(--theme-border);
+  --color-theme-dim: var(--theme-dim);
+  --color-theme-primary: var(--theme-primary);
+  --color-theme-accent: var(--theme-accent);
+  --color-theme-text: var(--theme-text);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Custom scrollbar for better mobile appearance */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+}
+
+.letter-shadow {
+  text-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
