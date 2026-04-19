@@ -592,7 +592,7 @@ export default function App() {
                 {/* Preload images to prevent slow loading on switch */}
                 <div className="absolute w-0 h-0 opacity-0 overflow-hidden pointer-events-none">
                   {Array.from({ length: 16 }).map((_, i) => (
-                    <img key={`preload-plate-${i}`} src={`/ishihara/plate${i + 1}.png`} alt={`Preload ${i + 1}`} />
+                    <img key={`preload-plate-${i}`} src={`./ishihara/plate${i + 1}.png`} alt={`Preload ${i + 1}`} />
                   ))}
                 </div>
                 
@@ -612,7 +612,7 @@ export default function App() {
                     className="absolute inset-6 rounded-full border-8 border-theme-border overflow-hidden flex items-center justify-center bg-white shadow-2xl"
                   >
                      <img 
-                      src={`/ishihara/plate${colorTestIndex + 1}.png`}
+                      src={`./ishihara/plate${colorTestIndex + 1}.png`}
                       alt={`Ishihara Plate ${colorTestIndex + 1}`}
                       className="w-full h-full object-contain"
                       referrerPolicy="no-referrer"
