@@ -617,8 +617,6 @@ export default function App() {
                       className="w-full h-full object-contain"
                       referrerPolicy="no-referrer"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
-                    <span className="absolute bottom-10 text-theme-dim font-mono text-xs font-black tracking-widest">PLATE {String(colorTestIndex + 1).padStart(2, '0')}</span>
                   </motion.div>
                 </AnimatePresence>
               </div>
