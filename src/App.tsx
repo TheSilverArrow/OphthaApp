@@ -1260,7 +1260,7 @@ export default function App() {
             </div>
 
             <div className="text-center pt-10">
-              <p className="text-[9px] text-theme-dim font-black uppercase tracking-[0.4em] opacity-30">OphthaChart Pro v2.1</p>
+              <p className="text-[9px] text-theme-dim font-black uppercase tracking-[0.4em] opacity-30">MADE BY GIO F.</p>
             </div>
           </motion.div>
         ) : (
