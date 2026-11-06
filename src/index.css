@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+:root {
+  --theme-bg: #0a0a0c;
+  --theme-surface: #16161a;
+  --theme-border: #2d2d35;
+  --theme-dim: #94a3b8;
+  --theme-primary: #3b82f6;
+  --theme-accent: #10b981;
+  --theme-text: #ffffff;
+}
+
+:root.light-theme {
+  --theme-bg: #f1f5f9;
+  --theme-surface: #ffffff;
+  --theme-border: #cbd5e1;
+  --theme-dim: #475569;
+  --theme-primary: #1d4ed8;
+  --theme-accent: #059669;
+  --theme-text: #0f172a;
+}
+
+@theme {
+  --animate-spin-slow: spin 3s linear infinite;
+  --color-theme-bg: var(--theme-bg);
+  --color-theme-surface: var(--theme-surface);
+  --color-theme-border: var(--theme-border);
+  --color-theme-dim: var(--theme-dim);
+  --color-theme-primary: var(--theme-primary);
+  --color-theme-accent: var(--theme-accent);
+  --color-theme-text: var(--theme-text);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Custom scrollbar for better mobile appearance */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--theme-border);
+  border-radius: 10px;
+}
+
+.letter-shadow {
+  text-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+}
+
+:root.light-theme .letter-shadow {
+  text-shadow: none;
+}
+
+body {
+  background-color: var(--theme-bg);
+  color: var(--theme-text);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
