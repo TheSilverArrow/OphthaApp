@@ -136,8 +136,7 @@ const ISHIHARA_PLATE_DETAILS: PlateDetail[] = [
   }
 ];
 
-const generateReportString = (session: SessionData, patientName?: string): string => {
-  const header = patientName ? `Patient: ${patientName}\n` : '';
+const generateReportString = (session: SessionData): string => {
   const ishiharaStr = session.ishihara ? `Ishihara: ${session.ishihara.score}/16\n` : '';
   const body = ['OD', 'OS'].map(eye => {
     const data = session[eye];
@@ -179,7 +178,7 @@ const generateReportString = (session: SessionData, patientName?: string): strin
     }
     return line;
   }).filter(Boolean).join('\n');
-  return header + ishiharaStr + body;
+  return ishiharaStr + body;
 };
 
 const AnimatedLogo = () => (
@@ -310,6 +309,7 @@ export default function App() {
   const [startingEye, setStartingEye] = useState<Eye>('OD');
   const [isTutorial, setIsTutorial] = useState(false);
   const [patientName, setPatientName] = useState('');
+  const [copied, setCopied] = useState(false);
   const [ishiharaAnswers, setIshiharaAnswers] = useState<('correct' | 'incorrect' | null)[]>(Array(16).fill(null));
   const [plate16Choice, setPlate16Choice] = useState<string>('');
   const [swipeDirection, setSwipeDirection] = useState<'up' | 'down' | null>(null);
@@ -354,11 +354,20 @@ export default function App() {
     localStorage.setItem('ophtha_theme', theme);
   }, [theme]);
 
-  // Preload Ishihara plates on mount
+  // Preload Ishihara plates and SVG backdrop on mount with instant GPU decoding
   useEffect(() => {
+    const svgImg = new Image();
+    svgImg.src = './assets/aistudio/Ishihara_1_a207bf18.svg';
+    if ('decode' in svgImg) {
+      svgImg.decode().catch(() => {});
+    }
+
     for (let i = 1; i <= 16; i++) {
       const img = new Image();
       img.src = `./ishihara/plate${i}.webp`;
+      if ('decode' in img) {
+        img.decode().catch(() => {});
+      }
     }
   }, []);
 
@@ -423,17 +432,78 @@ export default function App() {
   };
 
   // Helper to determine if an eye should skip further testing (CC/PH)
-  const isEyeDone = (eye: Eye) => {
-    const scData = session[eye]?.['SC'];
-    if (!scData) return false;
-    // Done if 20/20
-    if (scData.logMAR !== undefined && scData.logMAR <= 0.0) return true;
-    // Done if HM, LP, NLP
-    if (scData.nonLetter) {
-      const nl = scData.nonLetter.toUpperCase();
-      if (nl.startsWith('HM') || nl === 'LP' || nl === 'NLP') return true;
+  // An eye is done ONLY if it reached 20/20 or better (logMAR <= 0.0), or profound low vision (HM, LP, NLP).
+  // CF (Count Fingers) is explicitly EXEMPTED: CF eyes MUST still proceed to CC and Pinhole testing!
+  const isEyeDone = (eye: Eye, sess: SessionData = session) => {
+    // If CC was already tested, evaluate the CC outcome for this eye
+    const ccData = sess[eye]?.['CC'];
+    if (ccData) {
+      if (ccData.logMAR !== undefined && ccData.logMAR <= 0.0) return true;
+      if (ccData.nonLetter) {
+        const nl = ccData.nonLetter.toUpperCase();
+        // HM, LP, NLP are terminal; CF is NOT terminal and still proceeds to pinhole!
+        if (nl.startsWith('HM') || nl === 'LP' || nl === 'NLP') return true;
+        return false;
+      }
+      return false; // Sub-20/20 in CC still proceeds to pinhole
+    }
+
+    // Otherwise, evaluate the SC outcome for this eye
+    const scData = sess[eye]?.['SC'];
+    if (scData) {
+      if (scData.logMAR !== undefined && scData.logMAR <= 0.0) return true;
+      if (scData.nonLetter) {
+        const nl = scData.nonLetter.toUpperCase();
+        // HM, LP, NLP are terminal; CF is NOT terminal and still proceeds to CC & pinhole!
+        if (nl.startsWith('HM') || nl === 'LP' || nl === 'NLP') return true;
+        return false;
+      }
     }
     return false;
+  };
+
+  const getEyeTerminalReason = (eye: Eye, sess: SessionData = session) => {
+    const cc = sess[eye]?.['CC'];
+    if (cc) {
+      if (cc.logMAR !== undefined && cc.logMAR <= 0.0) return 'already 20/20';
+      if (cc.nonLetter) {
+        const nl = cc.nonLetter.toUpperCase();
+        if (nl.startsWith('HM')) return cc.nonLetter;
+        if (nl === 'LP') return 'LP';
+        if (nl === 'NLP') return 'NLP';
+      }
+    }
+    const sc = sess[eye]?.['SC'];
+    if (sc) {
+      if (sc.logMAR !== undefined && sc.logMAR <= 0.0) return 'already 20/20';
+      if (sc.nonLetter) {
+        const nl = sc.nonLetter.toUpperCase();
+        if (nl.startsWith('HM')) return sc.nonLetter;
+        if (nl === 'LP') return 'LP';
+        if (nl === 'NLP') return 'NLP';
+      }
+    }
+    return 'terminal visual acuity';
+  };
+
+  const getSingleEyeTestingNotice = (phase: 'CC' | 'PH') => {
+    const odDone = isEyeDone('OD');
+    const osDone = isEyeDone('OS');
+
+    if (odDone && !osDone) {
+      return {
+        testedEye: 'OS' as Eye,
+        doneEye: 'OD' as Eye,
+        reason: getEyeTerminalReason('OD')
+      };
+    } else if (osDone && !odDone) {
+      return {
+        testedEye: 'OD' as Eye,
+        doneEye: 'OS' as Eye,
+        reason: getEyeTerminalReason('OS')
+      };
+    }
+    return null;
   };
 
   const selectRowAndAbove = (lineIndex: number) => {
@@ -503,17 +573,7 @@ export default function App() {
     const e2 = startingEye === 'OD' ? 'OS' : 'OD';
 
     const isTerminal = (eye: Eye, sess: SessionData) => {
-      const sc = sess[eye]?.['SC'];
-      if (sc) {
-        if (sc.logMAR !== undefined && sc.logMAR <= 0.0) return true;
-        if (sc.nonLetter && ['HM', 'LP', 'NLP'].some(prefix => sc.nonLetter!.toUpperCase().startsWith(prefix))) return true;
-      }
-      const cc = sess[eye]?.['CC'];
-      if (cc && cc.statusLabel !== 'NICC') {
-        if (cc.logMAR !== undefined && cc.logMAR <= 0.0) return true;
-        if (cc.nonLetter && ['HM', 'LP', 'NLP'].some(prefix => cc.nonLetter!.toUpperCase().startsWith(prefix))) return true;
-      }
-      return false;
+      return isEyeDone(eye, sess);
     };
 
     // 1. SC Phase
@@ -585,8 +645,8 @@ export default function App() {
       return;
     }
 
-    const finalLogMAR = overrideLogMAR !== undefined ? overrideLogMAR : currentLogMAR;
     const finalNonLetter = overrideNonLetter !== undefined ? overrideNonLetter : undefined;
+    const finalLogMAR = finalNonLetter ? undefined : (overrideLogMAR !== undefined ? overrideLogMAR : currentLogMAR);
     
     let statusLabel: 'NIPH' | 'NICC' | undefined = undefined;
     if (finalLogMAR !== undefined) {
@@ -674,14 +734,27 @@ export default function App() {
     setDragOffsetY(0);
     setSwipeDirection(null);
     setPatientName('');
+    setCopied(false);
   };
 
   const copyReport = () => {
-    navigator.clipboard.writeText(generateReportString(session, patientName));
+    navigator.clipboard.writeText(generateReportString(session));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
     <div className={`flex flex-col h-dvh font-sans overflow-hidden transition-colors duration-300 pb-[env(safe-area-inset-bottom,0px)] ${theme === 'light' ? 'bg-white text-slate-900' : 'bg-zinc-950 text-white'}`} style={{ backgroundColor: 'var(--theme-bg)', color: 'var(--theme-text)' }}>
+      {/* Persistent cache pre-renderer for instant SVG backdrop display */}
+      <div className="absolute w-0 h-0 overflow-hidden opacity-0 pointer-events-none -z-50" aria-hidden="true">
+        <img 
+          src="./assets/aistudio/Ishihara_1_a207bf18.svg" 
+          alt="" 
+          loading="eager" 
+          decoding="sync" 
+        />
+      </div>
+
       {/* Main Content */}
       <main className="flex-1 min-h-0 relative overflow-y-auto" style={{ backgroundColor: 'var(--theme-bg)' }} id="chart-container">
         {/* Color Tests (Standalone or Exam) */}
@@ -997,6 +1070,10 @@ export default function App() {
 
                     <button 
                       onClick={() => {
+                        setSession({});
+                        setHasCorrection(null);
+                        setRows(getInitialRows());
+                        setTestDistance(4);
                         setStartingEye('OD');
                         setCurrentEye('OD');
                         setCurrentStage('TEST_SC');
@@ -1009,6 +1086,10 @@ export default function App() {
 
                     <button 
                       onClick={() => {
+                        setSession({});
+                        setHasCorrection(null);
+                        setRows(getInitialRows());
+                        setTestDistance(4);
                         setStartingEye('OS');
                         setCurrentEye('OS');
                         setCurrentStage('TEST_SC');
@@ -1271,62 +1352,102 @@ export default function App() {
                 </motion.div>
               )}
 
-              {currentStage === 'TEST_PH_INTRO' && (
-                <motion.div 
-                   key="ph-intro"
-                   initial={{ opacity: 0, scale: 0.95 }}
-                   animate={{ opacity: 1, scale: 1 }}
-                   className="flex flex-col items-center justify-center py-20 text-center space-y-8 h-full"
-                >
-                  <div className="relative flex items-center justify-center mt-6">
-                    <div className="w-1 h-20 bg-theme-text/80 rounded-t-lg absolute bottom-[80%]" />
-                    <div className="w-24 h-24 bg-theme-text rounded-full flex items-center justify-center shadow-2xl z-10 border-4 border-theme-surface">
-                      <div className="w-2 h-2 bg-theme-bg rounded-full shadow-[0_0_10px_white]" />
-                    </div>
-                  </div>
-                  <div>
-                    <h2 className="text-3xl font-black tracking-tighter uppercase italic text-theme-text mt-4">Pinhole Testing</h2>
-                    <p className="text-theme-dim mt-3 max-w-xs mx-auto text-lg leading-relaxed">Please place the pinhole occluder over the patient's eye.</p>
-                  </div>
-                  <button 
-                    onClick={() => handleNext()}
-                    className="w-full max-w-xs bg-theme-primary text-white font-black py-6 rounded-3xl shadow-xl transition-all active:scale-95 text-lg uppercase tracking-widest mt-4"
+              {currentStage === 'TEST_PH_INTRO' && (() => {
+                const singleNotice = getSingleEyeTestingNotice('PH');
+                return (
+                  <motion.div 
+                     key="ph-intro"
+                     initial={{ opacity: 0, scale: 0.95 }}
+                     animate={{ opacity: 1, scale: 1 }}
+                     className="flex flex-col items-center justify-center py-10 sm:py-14 text-center space-y-6 h-full max-w-sm mx-auto"
                   >
-                    Start Pinhole
-                  </button>
-                </motion.div>
-              )}
+                    <div className="relative flex items-center justify-center mt-2">
+                      <div className="w-1 h-16 bg-theme-text/80 rounded-t-lg absolute bottom-[80%]" />
+                      <div className="w-20 h-20 bg-theme-text rounded-full flex items-center justify-center shadow-2xl z-10 border-4 border-theme-surface">
+                        <div className="w-2 h-2 bg-theme-bg rounded-full shadow-[0_0_10px_white]" />
+                      </div>
+                    </div>
 
-              {currentStage === 'CC_CHECK' && (
-                <motion.div 
-                   key="cc"
-                   initial={{ opacity: 0, x: 20 }}
-                   animate={{ opacity: 1, x: 0 }}
-                   className="flex flex-col items-center justify-center py-20 text-center space-y-10 h-full"
-                >
-                   <div className="w-24 h-24 bg-theme-surface border border-theme-border text-theme-primary rounded-full flex items-center justify-center shadow-inner">
-                    <Glasses size={48} />
-                  </div>
-                  <div>
-                    <h2 className="text-3xl font-black tracking-tighter uppercase italic text-theme-text">Correction?</h2>
-                    <p className="text-theme-dim mt-3 max-w-xs mx-auto text-lg">Testing with glasses or contact lenses?</p>
-                  </div>
-                  <div className="flex gap-4 w-full max-w-sm">
+                    <div>
+                      <h2 className="text-3xl font-black tracking-tighter uppercase italic text-theme-text mt-2">Pinhole Testing</h2>
+                      
+                      {singleNotice ? (
+                        <div className="mt-4 space-y-3">
+                          <div className="bg-theme-primary/10 border-2 border-theme-primary/30 rounded-2xl p-4 text-center space-y-1 shadow-sm">
+                            <span className="text-xs font-black uppercase tracking-wider text-theme-primary block">
+                              Testing {singleNotice.testedEye} Only
+                            </span>
+                            <p className="text-xs text-theme-text font-medium leading-relaxed">
+                              <span className="font-bold text-theme-primary">{singleNotice.doneEye}</span> is {singleNotice.reason} and will not be tested with pinhole.
+                            </p>
+                          </div>
+                          <p className="text-theme-dim text-sm sm:text-base leading-relaxed">
+                            Please place the pinhole occluder over <span className="text-theme-primary font-black uppercase">{singleNotice.testedEye}</span>.
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-theme-dim mt-3 max-w-xs mx-auto text-base sm:text-lg leading-relaxed">
+                          Please place the pinhole occluder over the patient's eye.
+                        </p>
+                      )}
+                    </div>
+
                     <button 
-                      onClick={() => handleCorrectionChoice(true)}
-                      className="flex-1 bg-theme-primary text-white font-black py-6 rounded-[28px] shadow-2xl transition-all active:scale-95 text-xl"
+                      onClick={() => handleNext()}
+                      className="w-full max-w-xs bg-theme-primary text-white font-black py-5 sm:py-6 rounded-3xl shadow-xl transition-all active:scale-95 text-base sm:text-lg uppercase tracking-widest mt-2"
                     >
-                      WITH CC
+                      Start Pinhole {singleNotice ? `(${singleNotice.testedEye})` : ''}
                     </button>
-                    <button 
-                      onClick={() => handleCorrectionChoice(false)}
-                      className="flex-1 bg-theme-surface border border-theme-border text-theme-text font-black py-6 rounded-[28px] shadow-sm transition-all active:scale-95 text-xl"
-                    >
-                      NO CC
-                    </button>
-                  </div>
-                </motion.div>
-              )}
+                  </motion.div>
+                );
+              })()}
+
+              {currentStage === 'CC_CHECK' && (() => {
+                const singleNotice = getSingleEyeTestingNotice('CC');
+                return (
+                  <motion.div 
+                     key="cc"
+                     initial={{ opacity: 0, x: 20 }}
+                     animate={{ opacity: 1, x: 0 }}
+                     className="flex flex-col items-center justify-center py-10 sm:py-16 text-center space-y-6 sm:space-y-7 h-full max-w-sm mx-auto"
+                  >
+                     <div className="w-20 h-20 sm:w-24 sm:h-24 bg-theme-surface border border-theme-border text-theme-primary rounded-full flex items-center justify-center shadow-inner">
+                      <Glasses size={44} />
+                    </div>
+                    <div>
+                      <h2 className="text-3xl font-black tracking-tighter uppercase italic text-theme-text">Correction?</h2>
+                      <p className="text-theme-dim mt-1.5 max-w-xs mx-auto text-sm sm:text-base">Testing with glasses or contact lenses?</p>
+                    </div>
+
+                    {/* Explanatory Notice when one eye is done */}
+                    {singleNotice && (
+                      <div className="bg-theme-primary/10 border-2 border-theme-primary/30 rounded-2xl p-4 w-full text-center space-y-1 shadow-sm">
+                        <span className="text-xs font-black uppercase tracking-wider text-theme-primary block">
+                          Testing {singleNotice.testedEye} Only
+                        </span>
+                        <p className="text-xs text-theme-text font-medium leading-relaxed">
+                          <span className="font-bold text-theme-primary">{singleNotice.doneEye}</span> is {singleNotice.reason} and will not need correction testing.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="flex gap-3 sm:gap-4 w-full">
+                      <button 
+                        onClick={() => handleCorrectionChoice(true)}
+                        className="flex-1 bg-theme-primary text-white font-black py-5 sm:py-6 rounded-[24px] sm:rounded-[28px] shadow-2xl transition-all active:scale-95 text-base sm:text-lg uppercase"
+                      >
+                        WITH CC {singleNotice ? `(${singleNotice.testedEye})` : ''}
+                      </button>
+                      <button 
+                        onClick={() => handleCorrectionChoice(false)}
+                        className="flex-1 bg-theme-surface border border-theme-border text-theme-text font-black py-5 sm:py-6 rounded-[24px] sm:rounded-[28px] shadow-sm transition-all active:scale-95 text-base sm:text-lg uppercase"
+                      >
+                        NO CC
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })()}
 
               {currentStage === 'COLOR_CHOICE' && (
                 <motion.div 
@@ -1389,7 +1510,14 @@ export default function App() {
                    className="space-y-8 pb-32 mt-6"
                 >
                   <div className="flex items-center justify-between">
-                    <h2 className="text-4xl font-black tracking-tighter uppercase italic text-theme-primary">VA REPORT</h2>
+                    <div>
+                      <h2 className="text-4xl font-black tracking-tighter uppercase italic text-theme-primary">VA REPORT</h2>
+                      {patientName.trim() && (
+                        <p className="text-theme-dim text-xs font-black uppercase tracking-widest mt-0.5 truncate max-w-xs">
+                          {patientName.trim()}
+                        </p>
+                      )}
+                    </div>
                     <div className="flex gap-2">
                       <button onClick={restart} className="bg-theme-surface border border-theme-border p-3 rounded-2xl text-theme-dim shadow-xl active:scale-95 hover:text-theme-primary transition-colors">
                         <RefreshCcw size={24} />
@@ -1398,6 +1526,12 @@ export default function App() {
                   </div>
 
                   <div className="bg-theme-surface p-8 rounded-[40px] border border-theme-border shadow-2xl font-mono text-lg leading-relaxed flex flex-col gap-2">
+                    {patientName.trim() && (
+                      <div className="pb-4 mb-2 border-b border-theme-border/60 flex items-baseline gap-2.5">
+                        <span className="text-xs font-black uppercase tracking-widest text-theme-primary font-sans shrink-0">PATIENT:</span>
+                        <span className="text-xl font-black text-theme-text font-sans truncate">{patientName.trim()}</span>
+                      </div>
+                    )}
                     {['OD', 'OS'].filter(eye => session[eye]?.['SC'] !== undefined).map(eye => {
                        const sc = session[eye]?.['SC'];
                        const cc = session[eye]?.['CC'];
@@ -1465,9 +1599,21 @@ export default function App() {
 
                     <button 
                       onClick={copyReport} 
-                      className="mt-6 flex items-center justify-center gap-2 bg-theme-primary/10 hover:bg-theme-primary/20 text-theme-primary border border-theme-primary/20 p-4 rounded-2xl active:scale-95 transition-all text-sm font-black uppercase tracking-widest font-sans"
+                      className={`mt-6 flex items-center justify-center gap-2 border p-4 rounded-2xl active:scale-95 transition-all text-sm font-black uppercase tracking-widest font-sans ${
+                        copied 
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' 
+                          : 'bg-theme-primary/10 hover:bg-theme-primary/20 text-theme-primary border-theme-primary/20'
+                      }`}
                     >
-                      <ClipboardList size={20} /> Copy Results
+                      {copied ? (
+                        <>
+                          <CheckCircle2 size={20} className="text-emerald-500" /> Copied Results!
+                        </>
+                      ) : (
+                        <>
+                          <ClipboardList size={20} /> Copy Results
+                        </>
+                      )}
                     </button>
                   </div>
                   
@@ -1522,8 +1668,15 @@ export default function App() {
                 }}
                 className="group relative h-48 bg-theme-surface border border-theme-border rounded-[40px] overflow-hidden shadow-2xl transition-all active:scale-95"
               >
-                <div className="absolute inset-0 opacity-15 group-hover:opacity-25 transition-opacity">
-                  <img src="./ishihara/plate1.webp" alt="Ishihara preview" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <div className="absolute inset-0 opacity-20 group-hover:opacity-30 transition-opacity flex items-center justify-center overflow-hidden pointer-events-none">
+                  <img 
+                    src="./assets/aistudio/Ishihara_1_a207bf18.svg" 
+                    alt="Ishihara preview" 
+                    className="w-full h-full object-cover object-center scale-[2.1]" 
+                    loading="eager"
+                    decoding="sync"
+                    referrerPolicy="no-referrer" 
+                  />
                 </div>
                 <div className="relative z-10 flex flex-col items-center justify-center h-full space-y-3">
                   <div className="w-16 h-16 bg-theme-bg/5 rounded-full flex items-center justify-center border border-theme-border group-hover:border-theme-primary/50 transition-colors">
@@ -1564,19 +1717,29 @@ export default function App() {
               <div className="space-y-4">
                 {history.map((entry) => (
                   <div key={entry.id} className="bg-theme-surface border border-theme-border rounded-[32px] overflow-hidden shadow-xl group">
-                    <div className="px-6 py-3 bg-theme-bg/5 flex justify-between items-center border-b border-theme-border">
-                      <span className="text-[10px] font-black text-theme-dim uppercase tracking-[0.15em] font-mono">
-                        {new Date(entry.timestamp).toLocaleString(undefined, { 
-                          month: 'short', 
-                          day: 'numeric', 
-                          hour: '2-digit', 
-                          minute: '2-digit' 
-                        })}
-                      </span>
-                      <div className="flex gap-2">
+                    <div className="px-6 py-3 bg-theme-bg/5 flex justify-between items-center border-b border-theme-border gap-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="text-[10px] font-black text-theme-dim uppercase tracking-[0.15em] font-mono shrink-0">
+                          {new Date(entry.timestamp).toLocaleString(undefined, { 
+                            month: 'short', 
+                            day: 'numeric', 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })}
+                        </span>
+                        {entry.patientName && (
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-theme-border font-bold select-none shrink-0">•</span>
+                            <span className="text-xs font-bold text-theme-text truncate" title={entry.patientName}>
+                              {entry.patientName}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2 shrink-0">
                         <button 
                           onClick={() => {
-                            navigator.clipboard.writeText(generateReportString(entry.session, entry.patientName));
+                            navigator.clipboard.writeText(generateReportString(entry.session));
                           }}
                           className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-theme-primary bg-theme-primary/10 px-2 py-1.5 rounded-lg active:scale-95 transition-all outline outline-1 outline-theme-primary/20 hover:bg-theme-primary/20"
                         >
@@ -1594,7 +1757,7 @@ export default function App() {
                     </div>
                     <div className="p-5">
                       <div className="font-mono text-xs text-theme-text font-medium whitespace-pre-wrap leading-relaxed tracking-tight">
-                        {generateReportString(entry.session, entry.patientName)}
+                        {generateReportString(entry.session)}
                       </div>
                     </div>
                   </div>
