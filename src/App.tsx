@@ -840,7 +840,7 @@ export default function App() {
   };
 
   return (
-    <div className={`flex flex-col h-dvh font-sans overflow-hidden transition-colors duration-300 pb-[env(safe-area-inset-bottom,0px)] ${theme === 'light' ? 'bg-white text-slate-900' : 'bg-zinc-950 text-white'}`} style={{ backgroundColor: 'var(--theme-bg)', color: 'var(--theme-text)' }}>
+    <div className={`flex flex-col h-dvh font-sans overflow-hidden transition-colors duration-300 pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] ${theme === 'light' ? 'bg-white text-slate-900' : 'bg-zinc-950 text-white'}`} style={{ backgroundColor: 'var(--theme-bg)', color: 'var(--theme-text)' }}>
       {/* Persistent cache pre-renderer for instant SVG backdrop display */}
       <div className="absolute w-0 h-0 overflow-hidden opacity-0 pointer-events-none -z-50" aria-hidden="true">
         <img 
