@@ -24,15 +24,21 @@ export interface VAData {
   gridState?: Row[];
 }
 
+export interface IshiharaResult {
+  answers: ('correct' | 'incorrect' | null)[];
+  score: number;
+  plate16Choice?: string;
+  eye?: 'OD' | 'OS' | 'OU';
+}
+
 export interface SessionData {
   OD?: { [mode: string]: VAData };
   OS?: { [mode: string]: VAData };
   patientName?: string;
-  ishihara?: {
-    answers: ('correct' | 'incorrect' | null)[];
-    score: number;
-    plate16Choice?: string;
-  };
+  ishihara?: IshiharaResult;
+  ishiharaOD?: IshiharaResult;
+  ishiharaOS?: IshiharaResult;
+  ishiharaOU?: IshiharaResult;
   [key: string]: any;
 }
 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Eye, TestMode, Row, SessionData, NonLetterVA, Stage } from './types';
+import { Eye, TestMode, Row, SessionData, NonLetterVA, Stage, IshiharaResult } from './types';
 import { getInitialRows, logMARToSnellen, logMARToMetric } from './constants';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -20,7 +20,8 @@ import {
   Moon,
   Info,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Grid3x3
 } from 'lucide-react';
 
 interface HistoryEntry {
@@ -136,8 +137,88 @@ const ISHIHARA_PLATE_DETAILS: PlateDetail[] = [
   }
 ];
 
+const ETDRS_CONVERSION_DATA = [
+  { letters: 1, m4: 240, m2: 480, m1: 957, m05: 1910 },
+  { letters: 2, m4: 230, m2: 458, m1: 914, m05: 1824 },
+  { letters: 3, m4: 219, m2: 438, m1: 873, m05: 1742 },
+  { letters: 4, m4: 209, m2: 418, m1: 834, m05: 1664 },
+  { letters: 5, m4: 200, m2: 399, m1: 796, m05: 1589 },
+  { letters: 6, m4: 191, m2: 381, m1: 760, m05: 1517 },
+  { letters: 7, m4: 182, m2: 364, m1: 726, m05: 1449 },
+  { letters: 8, m4: 174, m2: 348, m1: 693, m05: 1384 },
+  { letters: 9, m4: 166, m2: 332, m1: 662, m05: 1321 },
+  { letters: 10, m4: 159, m2: 317, m1: 632, m05: 1262 },
+  { letters: 11, m4: 152, m2: 303, m1: 604, m05: 1205 },
+  { letters: 12, m4: 145, m2: 290, m1: 577, m05: 1151 },
+  { letters: 13, m4: 138, m2: 276, m1: 551, m05: 1099 },
+  { letters: 14, m4: 132, m2: 264, m1: 526, m05: 1050 },
+  { letters: 15, m4: 126, m2: 252, m1: 502, m05: 1002 },
+  { letters: 16, m4: 121, m2: 240, m1: 480, m05: 957 },
+  { letters: 17, m4: 115, m2: 230, m1: 458, m05: 914 },
+  { letters: 18, m4: 110, m2: 219, m1: 438, m05: 873 },
+  { letters: 19, m4: 105, m2: 209, m1: 418, m05: 834 },
+  { letters: 20, m4: 100, m2: 200, m1: 399, m05: 796 },
+  { letters: 21, m4: 96, m2: 191, m1: 381, m05: 760 },
+  { letters: 22, m4: 91, m2: 182, m1: 364, m05: 726 },
+  { letters: 23, m4: 87, m2: 174, m1: 348, m05: 693 },
+  { letters: 24, m4: 83, m2: 166, m1: 332, m05: 662 },
+  { letters: 25, m4: 80, m2: 159, m1: 317, m05: 632 },
+  { letters: 26, m4: 76, m2: 152, m1: 303, m05: 604 },
+  { letters: 27, m4: 73, m2: 145, m1: 289, m05: 577 },
+  { letters: 28, m4: 69, m2: 138, m1: 276, m05: 551 },
+  { letters: 29, m4: 66, m2: 132, m1: 264, m05: 526 },
+  { letters: 30, m4: 63, m2: 126, m1: 252, m05: 502 },
+  { letters: 31, m4: 60, m2: 121, m1: 240, m05: 480 },
+  { letters: 32, m4: 58, m2: 115, m1: 230, m05: 458 },
+  { letters: 33, m4: 55, m2: 110, m1: 219, m05: 438 },
+  { letters: 34, m4: 53, m2: 105, m1: 209, m05: 418 },
+  { letters: 35, m4: 50, m2: 100, m1: 200, m05: 399 },
+  { letters: 36, m4: 48, m2: 96, m1: 191, m05: 381 },
+  { letters: 37, m4: 46, m2: 91, m1: 182, m05: 364 },
+  { letters: 38, m4: 44, m2: 87, m1: 174, m05: 348 },
+  { letters: 39, m4: 42, m2: 83, m1: 166, m05: 332 },
+  { letters: 40, m4: 40, m2: 80, m1: 159, m05: 317 },
+  { letters: 41, m4: 38, m2: 76, m1: 152, m05: 303 },
+  { letters: 42, m4: 37, m2: 73, m1: 145, m05: 289 },
+  { letters: 43, m4: 35, m2: 69, m1: 138, m05: 276 },
+  { letters: 44, m4: 33, m2: 66, m1: 132, m05: 264 },
+  { letters: 45, m4: 32, m2: 63, m1: 126, m05: 252 },
+  { letters: 46, m4: 30, m2: 60, m1: 121, m05: 240 },
+  { letters: 47, m4: 29, m2: 58, m1: 115, m05: 230 },
+  { letters: 48, m4: 28, m2: 55, m1: 110, m05: 219 },
+  { letters: 49, m4: 26, m2: 53, m1: 105, m05: 209 },
+  { letters: 50, m4: 25, m2: 50, m1: 100, m05: 200 },
+  { letters: 51, m4: 24, m2: 48, m1: 96, m05: 191 },
+  { letters: 52, m4: 23, m2: 46, m1: 91, m05: 182 },
+  { letters: 53, m4: 22, m2: 44, m1: 87, m05: 174 },
+  { letters: 54, m4: 21, m2: 42, m1: 83, m05: 166 },
+  { letters: 55, m4: 20, m2: 40, m1: 80, m05: 159 },
+  { letters: 56, m4: 19, m2: 38, m1: 76, m05: 152 },
+  { letters: 57, m4: 18, m2: 36, m1: 73, m05: 145 },
+  { letters: 58, m4: 17, m2: 35, m1: 69, m05: 138 },
+  { letters: 59, m4: 17, m2: 33, m1: 66, m05: 132 },
+  { letters: 60, m4: 16, m2: 32, m1: 63, m05: 126 },
+  { letters: 61, m4: 15, m2: 31, m1: 60, m05: 121 },
+  { letters: 62, m4: 14, m2: 29, m1: 58, m05: 115 },
+  { letters: 63, m4: 14, m2: 28, m1: 55, m05: 110 },
+  { letters: 64, m4: 13, m2: 26, m1: 53, m05: 105 },
+  { letters: 65, m4: 13, m2: 25, m1: 50, m05: 100 },
+  { letters: 66, m4: 12, m2: 24, m1: 48, m05: 96 },
+  { letters: 67, m4: 12, m2: 23, m1: 46, m05: 91 },
+  { letters: 68, m4: 11, m2: 22, m1: 44, m05: 87 },
+  { letters: 69, m4: 11, m2: 21, m1: 42, m05: 83 },
+  { letters: 70, m4: 10, m2: 20, m1: 40, m05: 80 }
+];
+
 const generateReportString = (session: SessionData): string => {
-  const ishiharaStr = session.ishihara ? `Ishihara: ${session.ishihara.score}/16\n` : '';
+  let ishiharaStr = '';
+  if (session.ishiharaOD) ishiharaStr += `Ishihara OD: ${session.ishiharaOD.score}/16\n`;
+  if (session.ishiharaOS) ishiharaStr += `Ishihara OS: ${session.ishiharaOS.score}/16\n`;
+  if (session.ishiharaOU) ishiharaStr += `Ishihara OU: ${session.ishiharaOU.score}/16\n`;
+  if (!ishiharaStr && session.ishihara) {
+    const eyeLabel = session.ishihara.eye ? ` ${session.ishihara.eye}` : '';
+    ishiharaStr = `Ishihara${eyeLabel}: ${session.ishihara.score}/16\n`;
+  }
   const body = ['OD', 'OS'].map(eye => {
     const data = session[eye];
     if (!data) return null;
@@ -151,7 +232,7 @@ const generateReportString = (session: SessionData): string => {
     const scVal = sc ? (sc.nonLetter || (sc.logMAR !== undefined ? logMARToSnellen(sc.logMAR) : '—')) : '—';
     const scNL = sc?.nonLetter?.toUpperCase() || '';
     const isNonLetter = !!sc?.nonLetter;
-    const isLowVision = scNL.startsWith('HM') || scNL === 'LP' || scNL === 'NLP';
+    const isLowVision = scNL.startsWith('CF') || scNL.startsWith('HM') || scNL === 'LP' || scNL === 'NLP';
 
     let line = `${eye}: ${isNonLetter ? '' : 'sc '}${scVal}`;
 
@@ -316,8 +397,22 @@ export default function App() {
   const [dragOffsetY, setDragOffsetY] = useState<number>(0);
   const [hasVibratedThreshold, setHasVibratedThreshold] = useState<boolean>(false);
   const [showIshiharaModal, setShowIshiharaModal] = useState(false);
+  const [showAmslerModal, setShowAmslerModal] = useState(false);
+  const [showConversionModal, setShowConversionModal] = useState(false);
   const [selectedPlateForInterpretation, setSelectedPlateForInterpretation] = useState<number>(1);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [ishiharaEye, setIshiharaEye] = useState<'OD' | 'OS' | 'OU'>('OU');
+  const [interpretationTarget, setInterpretationTarget] = useState<IshiharaResult | null>(null);
+
+  const startIshihara = (eye: 'OD' | 'OS' | 'OU') => {
+    setIshiharaEye(eye);
+    setColorTestIndex(0);
+    setIshiharaAnswers(Array(16).fill(null));
+    setPlate16Choice('');
+    setDragOffsetY(0);
+    setSwipeDirection(null);
+    setCurrentStage('TEST_ISHIHARA');
+  };
 
   // Load history and theme on mount
   useEffect(() => {
@@ -432,8 +527,7 @@ export default function App() {
   };
 
   // Helper to determine if an eye should skip further testing (CC/PH)
-  // An eye is done ONLY if it reached 20/20 or better (logMAR <= 0.0), or profound low vision (HM, LP, NLP).
-  // CF (Count Fingers) is explicitly EXEMPTED: CF eyes MUST still proceed to CC and Pinhole testing!
+  // An eye is done if it reached 20/20 or better (logMAR <= 0.0), or non-letter low vision (CF, HM, LP, NLP).
   const isEyeDone = (eye: Eye, sess: SessionData = session) => {
     // If CC was already tested, evaluate the CC outcome for this eye
     const ccData = sess[eye]?.['CC'];
@@ -441,8 +535,7 @@ export default function App() {
       if (ccData.logMAR !== undefined && ccData.logMAR <= 0.0) return true;
       if (ccData.nonLetter) {
         const nl = ccData.nonLetter.toUpperCase();
-        // HM, LP, NLP are terminal; CF is NOT terminal and still proceeds to pinhole!
-        if (nl.startsWith('HM') || nl === 'LP' || nl === 'NLP') return true;
+        if (nl.startsWith('CF') || nl.startsWith('HM') || nl === 'LP' || nl === 'NLP') return true;
         return false;
       }
       return false; // Sub-20/20 in CC still proceeds to pinhole
@@ -454,8 +547,7 @@ export default function App() {
       if (scData.logMAR !== undefined && scData.logMAR <= 0.0) return true;
       if (scData.nonLetter) {
         const nl = scData.nonLetter.toUpperCase();
-        // HM, LP, NLP are terminal; CF is NOT terminal and still proceeds to CC & pinhole!
-        if (nl.startsWith('HM') || nl === 'LP' || nl === 'NLP') return true;
+        if (nl.startsWith('CF') || nl.startsWith('HM') || nl === 'LP' || nl === 'NLP') return true;
         return false;
       }
     }
@@ -468,6 +560,7 @@ export default function App() {
       if (cc.logMAR !== undefined && cc.logMAR <= 0.0) return 'already 20/20';
       if (cc.nonLetter) {
         const nl = cc.nonLetter.toUpperCase();
+        if (nl.startsWith('CF')) return cc.nonLetter;
         if (nl.startsWith('HM')) return cc.nonLetter;
         if (nl === 'LP') return 'LP';
         if (nl === 'NLP') return 'NLP';
@@ -478,6 +571,7 @@ export default function App() {
       if (sc.logMAR !== undefined && sc.logMAR <= 0.0) return 'already 20/20';
       if (sc.nonLetter) {
         const nl = sc.nonLetter.toUpperCase();
+        if (nl.startsWith('CF')) return sc.nonLetter;
         if (nl.startsWith('HM')) return sc.nonLetter;
         if (nl === 'LP') return 'LP';
         if (nl === 'NLP') return 'NLP';
@@ -735,6 +829,8 @@ export default function App() {
     setSwipeDirection(null);
     setPatientName('');
     setCopied(false);
+    setIshiharaEye('OU');
+    setInterpretationTarget(null);
   };
 
   const copyReport = () => {
@@ -777,14 +873,36 @@ export default function App() {
                     if (activeTab === 'exam') {
                       setCurrentStage('EYE_INIT');
                     } else {
-                      setCurrentStage('RESULTS');
+                      setCurrentStage('COLOR_CHOICE');
                     }
                   }
                 } else {
                   if (colorTestIndex > 0) setColorTestIndex(prev => prev - 1);
                 }
               }}
-            />
+            >
+              {/* Top Bar for 4/4 Colors */}
+              <div 
+                className="absolute top-4 inset-x-0 px-4 flex items-center justify-between z-40 pointer-events-auto" 
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button 
+                  onClick={() => {
+                    if (activeTab === 'exam') {
+                      setCurrentStage('EYE_INIT');
+                    } else {
+                      setCurrentStage('COLOR_CHOICE');
+                    }
+                  }}
+                  className="px-4 py-2 bg-black/40 text-white backdrop-blur-md rounded-xl font-black uppercase tracking-wider text-[11px] hover:bg-black/60 transition-all active:scale-95 shadow-lg border border-white/20"
+                >
+                  Done
+                </button>
+                <span className="px-3 py-1 bg-black/40 text-white backdrop-blur-md rounded-xl font-mono text-xs font-bold border border-white/20">
+                  {colorTestIndex + 1} / 4
+                </span>
+              </div>
+            </motion.div>
           )}
 
           {currentStage === 'TEST_ISHIHARA' && (() => {
@@ -832,7 +950,11 @@ export default function App() {
                 <div className="absolute top-4 inset-x-0 px-4 flex items-center justify-between z-40 pointer-events-auto">
                   <button 
                     onClick={() => {
-                      setCurrentStage('EYE_INIT');
+                      if (activeTab === 'exam') {
+                        setCurrentStage('EYE_INIT');
+                      } else {
+                        setCurrentStage('COLOR_CHOICE');
+                      }
                     }}
                     className="px-4 py-2 bg-theme-surface/90 backdrop-blur-sm border border-theme-border rounded-xl text-theme-dim font-black uppercase tracking-wider text-[11px] hover:text-red-500 hover:border-red-500/40 transition-all active:scale-95 shadow-md"
                   >
@@ -852,8 +974,15 @@ export default function App() {
 
                 {/* Plate Counter & Dots: centered in the space between upper buttons and the plate circle without affecting anything else */}
                 <div className="mt-14 mb-2 flex flex-col items-center z-20 -translate-y-7 sm:-translate-y-9 pointer-events-auto">
-                  <div className="font-mono font-black text-xs uppercase tracking-[0.2em] text-theme-dim text-center mb-1.5">
-                    Plate {colorTestIndex + 1} / 16
+                  <div className="flex items-center gap-2 mb-1.5">
+                    {ishiharaEye && (
+                      <span className="px-2 py-0.5 rounded-md bg-theme-primary text-white font-mono font-black text-[10px] uppercase tracking-wider">
+                        {ishiharaEye}
+                      </span>
+                    )}
+                    <span className="font-mono font-black text-xs uppercase tracking-[0.2em] text-theme-dim text-center">
+                      Plate {colorTestIndex + 1} / 16
+                    </span>
                   </div>
 
                   {/* Tracking Dots */}
@@ -979,12 +1108,20 @@ export default function App() {
                             setColorTestIndex(prev => prev + 1);
                           } else {
                             const score = newAnswers.filter(a => a === 'correct').length;
+                            const eyeToSave = ishiharaEye || 'OU';
+                            const result: IshiharaResult = { answers: newAnswers, score, plate16Choice, eye: eyeToSave };
                             setSession(prev => ({
                               ...prev,
-                              ishihara: { answers: newAnswers, score, plate16Choice }
+                              ishihara: result,
+                              ...(eyeToSave === 'OD' ? { ishiharaOD: result } : {}),
+                              ...(eyeToSave === 'OS' ? { ishiharaOS: result } : {}),
+                              ...(eyeToSave === 'OU' ? { ishiharaOU: result } : {})
                             }));
-                            setActiveTab('etdrs');
-                            setCurrentStage('RESULTS');
+                            if (activeTab === 'exam') {
+                              setCurrentStage('EYE_INIT');
+                            } else {
+                              setCurrentStage('COLOR_CHOICE');
+                            }
                           }
                         }, 150);
                       } else if (offsetY > 55) {
@@ -999,12 +1136,20 @@ export default function App() {
                             setColorTestIndex(prev => prev + 1);
                           } else {
                             const score = newAnswers.filter(a => a === 'correct').length;
+                            const eyeToSave = ishiharaEye || 'OU';
+                            const result: IshiharaResult = { answers: newAnswers, score, plate16Choice, eye: eyeToSave };
                             setSession(prev => ({
                               ...prev,
-                              ishihara: { answers: newAnswers, score, plate16Choice }
+                              ishihara: result,
+                              ...(eyeToSave === 'OD' ? { ishiharaOD: result } : {}),
+                              ...(eyeToSave === 'OS' ? { ishiharaOS: result } : {}),
+                              ...(eyeToSave === 'OU' ? { ishiharaOU: result } : {})
                             }));
-                            setActiveTab('etdrs');
-                            setCurrentStage('RESULTS');
+                            if (activeTab === 'exam') {
+                              setCurrentStage('EYE_INIT');
+                            } else {
+                              setCurrentStage('COLOR_CHOICE');
+                            }
                           }
                         }, 150);
                       }
@@ -1101,20 +1246,28 @@ export default function App() {
                     </button>
                   </div>
                   
-                  <button 
-                    onClick={() => {
-                      setIsTutorial(true);
-                      setStartingEye('OD');
-                      setCurrentEye('OD');
-                      setCurrentMode('SC');
-                      setRows(getInitialRows());
-                      setCurrentStage('TEST_SC');
-                      setTestDistance(4);
-                    }}
-                    className="px-5 py-1.5 rounded-full border border-theme-border text-theme-dim text-[11px] font-black uppercase tracking-widest hover:text-white transition-colors"
-                  >
-                    Tutorial Mode
-                  </button>
+                    <div className="flex flex-col sm:flex-row gap-2 w-full pt-1">
+                      <button 
+                        onClick={() => setShowConversionModal(true)}
+                        className="flex-1 bg-theme-surface border border-theme-border text-theme-text font-black py-3 px-4 rounded-2xl shadow-sm transition-all active:scale-95 text-xs uppercase tracking-wider hover:border-theme-primary/50 flex items-center justify-center gap-2"
+                      >
+                        <ClipboardList size={16} className="text-theme-primary" /> ETDRS Conversion Table
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setIsTutorial(true);
+                          setStartingEye('OD');
+                          setCurrentEye('OD');
+                          setCurrentMode('SC');
+                          setRows(getInitialRows());
+                          setCurrentStage('TEST_SC');
+                          setTestDistance(4);
+                        }}
+                        className="px-4 py-3 rounded-2xl border border-theme-border text-theme-dim text-xs font-black uppercase tracking-wider hover:text-white transition-all active:scale-95"
+                      >
+                        Tutorial Mode
+                      </button>
+                    </div>
                 </motion.div>
               )}
 
@@ -1456,9 +1609,9 @@ export default function App() {
                    animate={{ opacity: 1, y: 0 }}
                    exit={{ opacity: 0, y: -20 }}
                    transition={{ duration: 0.2 }}
-                   className="flex flex-col items-center justify-center py-20 text-center space-y-10 h-full"
+                   className="flex flex-col items-center justify-center py-8 sm:py-14 text-center space-y-6 sm:space-y-8 h-full max-w-sm mx-auto px-2"
                 >
-                   <div className="w-24 h-24 bg-theme-surface border border-theme-border text-theme-primary rounded-full flex items-center justify-center overflow-hidden">
+                   <div className="w-20 h-20 bg-theme-surface border border-theme-border text-theme-primary rounded-full flex items-center justify-center overflow-hidden shadow-lg">
                     <div className="grid grid-cols-2 w-full h-full">
                       <div className="bg-red-500"/><div className="bg-yellow-500"/>
                       <div className="bg-blue-500"/><div className="bg-green-500"/>
@@ -1466,37 +1619,106 @@ export default function App() {
                   </div>
                   <div>
                     <h2 className="text-3xl font-black tracking-tighter uppercase italic text-theme-text">Next Steps</h2>
-                    <p className="text-theme-dim mt-3 max-w-sm mx-auto text-lg leading-relaxed">Proceed to clinical summary or perform specialized color vision assessments.</p>
+                    <p className="text-theme-dim mt-2 text-sm sm:text-base leading-relaxed">Perform specialized color vision tests or proceed to the clinical summary.</p>
                   </div>
-                  <div className="flex flex-col gap-3 w-full max-w-sm">
+
+                  <div className="flex flex-col gap-3.5 w-full">
+                    {/* Primary Action: Continue to Report */}
                     <button 
                       onClick={() => {
                         setCurrentStage('RESULTS');
                       }}
-                      className="w-full bg-theme-primary text-white font-black py-5 rounded-[24px] shadow-2xl transition-all active:scale-95 text-xl uppercase tracking-widest"
+                      className="w-full bg-theme-primary text-white font-black py-4 sm:py-5 rounded-[24px] shadow-2xl transition-all active:scale-95 text-lg sm:text-xl uppercase tracking-widest flex items-center justify-center gap-2"
                     >
-                      Continue to Report
+                      <span>Continue to Report</span>
+                      <ChevronRight size={22} />
                     </button>
-                    <div className="grid grid-cols-2 gap-3">
-                  <button 
-                    onClick={() => {
+
+                    {/* Ishihara Testing for OD, OS, or OU */}
+                    <div className="space-y-2 pt-2">
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[11px] font-black uppercase tracking-wider text-theme-dim font-sans">Ishihara Plates</span>
+                        <span className="text-[10px] font-mono text-theme-dim/70 font-bold">16 PLATES</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 w-full">
+                        {/* Test Ishihara OD */}
+                        <button 
+                          onClick={() => startIshihara('OD')}
+                          className={`p-3 rounded-[20px] border transition-all active:scale-95 flex flex-col items-center justify-center gap-1 shadow-sm ${
+                            session.ishiharaOD 
+                              ? 'bg-emerald-500/10 border-emerald-500/40' 
+                              : 'bg-theme-surface border-theme-border hover:border-theme-primary/50'
+                          }`}
+                        >
+                          <span className="text-[9px] font-mono uppercase font-bold text-theme-dim">Right Eye</span>
+                          <span className="text-xs font-black uppercase tracking-wider text-theme-text">Ishihara OD</span>
+                          {session.ishiharaOD ? (
+                            <span className="text-[10px] font-mono font-black text-emerald-500 bg-emerald-500/15 px-2 py-0.5 rounded-md mt-0.5">
+                              {session.ishiharaOD.score}/16
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-mono text-theme-dim/60 uppercase mt-0.5">Test</span>
+                          )}
+                        </button>
+
+                        {/* Test Ishihara OS */}
+                        <button 
+                          onClick={() => startIshihara('OS')}
+                          className={`p-3 rounded-[20px] border transition-all active:scale-95 flex flex-col items-center justify-center gap-1 shadow-sm ${
+                            session.ishiharaOS 
+                              ? 'bg-emerald-500/10 border-emerald-500/40' 
+                              : 'bg-theme-surface border-theme-border hover:border-theme-primary/50'
+                          }`}
+                        >
+                          <span className="text-[9px] font-mono uppercase font-bold text-theme-dim">Left Eye</span>
+                          <span className="text-xs font-black uppercase tracking-wider text-theme-text">Ishihara OS</span>
+                          {session.ishiharaOS ? (
+                            <span className="text-[10px] font-mono font-black text-emerald-500 bg-emerald-500/15 px-2 py-0.5 rounded-md mt-0.5">
+                              {session.ishiharaOS.score}/16
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-mono text-theme-dim/60 uppercase mt-0.5">Test</span>
+                          )}
+                        </button>
+
+                        {/* Test Ishihara OU */}
+                        <button 
+                          onClick={() => startIshihara('OU')}
+                          className={`p-3 rounded-[20px] border transition-all active:scale-95 flex flex-col items-center justify-center gap-1 shadow-sm ${
+                            session.ishiharaOU 
+                              ? 'bg-emerald-500/10 border-emerald-500/40' 
+                              : 'bg-theme-surface border-theme-border hover:border-theme-primary/50'
+                          }`}
+                        >
+                          <span className="text-[9px] font-mono uppercase font-bold text-theme-dim">Both Eyes</span>
+                          <span className="text-xs font-black uppercase tracking-wider text-theme-text">Ishihara OU</span>
+                          {session.ishiharaOU ? (
+                            <span className="text-[10px] font-mono font-black text-emerald-500 bg-emerald-500/15 px-2 py-0.5 rounded-md mt-0.5">
+                              {session.ishiharaOU.score}/16
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-mono text-theme-dim/60 uppercase mt-0.5">Test</span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 4/4 Colors */}
+                    <button 
+                      onClick={() => {
                         setColorTestIndex(0);
                         setCurrentStage('TEST_COLORS');
-                    }}
-                    className="bg-theme-surface border border-theme-border text-theme-text font-black py-4 rounded-[20px] shadow-sm transition-all active:scale-95 text-xs tracking-widest uppercase"
-                  >
-                    4/4 Colors
-                  </button>
-                  <button 
-                    onClick={() => {
-                        setColorTestIndex(0);
-                        setCurrentStage('TEST_ISHIHARA');
-                    }}
-                    className="bg-theme-surface border border-theme-border text-theme-text font-black py-4 rounded-[20px] shadow-sm transition-all active:scale-95 text-xs tracking-widest uppercase"
-                  >
-                    Ishihara
-                  </button>
-                    </div>
+                      }}
+                      className="w-full bg-theme-surface border border-theme-border text-theme-text font-black py-3.5 rounded-[20px] shadow-sm transition-all active:scale-95 text-xs tracking-widest uppercase hover:border-theme-primary/50 flex items-center justify-center gap-2.5"
+                    >
+                      <div className="flex gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                      </div>
+                      <span>Test 4/4 Colors</span>
+                    </button>
                   </div>
                 </motion.div>
               )}
@@ -1542,7 +1764,7 @@ export default function App() {
                        
                        const scNL = sc?.nonLetter?.toUpperCase() || '';
                        const isNonLetter = !!sc?.nonLetter;
-                       const isLowVision = scNL.startsWith('HM') || scNL === 'LP' || scNL === 'NLP';
+                       const isLowVision = scNL.startsWith('CF') || scNL.startsWith('HM') || scNL === 'LP' || scNL === 'NLP';
 
                        if (isLowVision) {
                          return (
@@ -1575,18 +1797,46 @@ export default function App() {
                          </div>
                        );
                     })}
-                    {/* Ishihara Result Row if assessed */}
-                    {session.ishihara && (
+                    {/* Ishihara Result Rows if assessed */}
+                    {(['OD', 'OS', 'OU'] as const).map(eyeKey => {
+                      const res = eyeKey === 'OD' ? session.ishiharaOD : eyeKey === 'OS' ? session.ishiharaOS : session.ishiharaOU;
+                      if (!res) return null;
+                      return (
+                        <div key={`ishihara-${eyeKey}`} className="flex flex-col gap-2 pt-2 border-t border-theme-border/40">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-theme-primary">Ishihara {eyeKey}:</span>
+                              <span className="text-theme-text font-bold">{res.score}/16</span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                const firstMissed = res.answers.findIndex(a => a === 'incorrect');
+                                setSelectedPlateForInterpretation(firstMissed !== -1 ? firstMissed + 1 : 1);
+                                setInterpretationTarget(res);
+                                setShowIshiharaModal(true);
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-theme-primary/10 hover:bg-theme-primary/20 text-theme-primary rounded-xl text-xs font-black uppercase tracking-wider transition-all border border-theme-primary/30 active:scale-95"
+                            >
+                              <Info size={14} /> Interpretation
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Fallback for legacy single session.ishihara without OD/OS/OU */}
+                    {(!session.ishiharaOD && !session.ishiharaOS && !session.ishiharaOU && session.ishihara) && (
                       <div className="flex flex-col gap-2 pt-2 border-t border-theme-border/40">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span className="font-black text-theme-primary">Ishihara:</span>
+                            <span className="font-black text-theme-primary">Ishihara{session.ishihara.eye ? ` ${session.ishihara.eye}` : ''}:</span>
                             <span className="text-theme-text font-bold">{session.ishihara.score}/16</span>
                           </div>
                           <button
                             onClick={() => {
                               const firstMissed = session.ishihara?.answers.findIndex(a => a === 'incorrect');
                               setSelectedPlateForInterpretation(firstMissed !== undefined && firstMissed !== -1 ? firstMissed + 1 : 1);
+                              setInterpretationTarget(session.ishihara || null);
                               setShowIshiharaModal(true);
                             }}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-theme-primary/10 hover:bg-theme-primary/20 text-theme-primary rounded-xl text-xs font-black uppercase tracking-wider transition-all border border-theme-primary/30 active:scale-95"
@@ -1627,6 +1877,32 @@ export default function App() {
               )}
             </AnimatePresence>
           </div>
+        ) : activeTab === 'amsler' ? (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="w-full h-full flex items-center justify-center p-2 sm:p-4 bg-white relative overflow-hidden"
+          >
+            <div className="w-full h-full max-w-3xl max-h-3xl aspect-square flex items-center justify-center p-1 sm:p-2">
+              <img 
+                src="./assets/aistudio/AmslerGrid_d49a773f.svg" 
+                alt="Amsler Grid" 
+                className="w-full h-full object-contain select-none"
+                loading="eager"
+                decoding="sync"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+            {/* Review Interpretation Button on bottom right */}
+            <div className="absolute bottom-4 right-4 z-30">
+              <button
+                onClick={() => setShowAmslerModal(true)}
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-theme-surface/90 hover:bg-theme-surface text-theme-primary border border-theme-border rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-xl active:scale-95 backdrop-blur-md"
+              >
+                <Info size={16} /> Review Interpretation
+              </button>
+            </div>
+          </motion.div>
         ) : activeTab === 'exam' ? (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -1663,8 +1939,7 @@ export default function App() {
 
               <button 
                 onClick={() => {
-                  setColorTestIndex(0);
-                  setCurrentStage('TEST_ISHIHARA');
+                  startIshihara('OU');
                 }}
                 className="group relative h-48 bg-theme-surface border border-theme-border rounded-[40px] overflow-hidden shadow-2xl transition-all active:scale-95"
               >
@@ -1934,6 +2209,12 @@ export default function App() {
           label="Colors" 
         />
         <TabItem 
+          active={activeTab === 'amsler'} 
+          onClick={() => setActiveTab('amsler')} 
+          icon={<Grid3x3 size={20} />} 
+          label="Amsler" 
+        />
+        <TabItem 
           active={activeTab === 'history'} 
           onClick={() => setActiveTab('history')} 
           icon={<HistoryIcon size={20} />} 
@@ -1958,53 +2239,57 @@ export default function App() {
               className="bg-theme-surface border-2 border-theme-border/80 rounded-[32px] max-w-lg sm:max-w-xl w-full p-4 sm:p-6 shadow-2xl flex flex-col max-h-[88vh] overflow-hidden"
             >
               {/* Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-theme-border/50">
-                <div className="flex items-center gap-2.5">
-                  <h3 className="text-base sm:text-lg font-black uppercase italic text-theme-text leading-none">
-                    Ishihara Guide
-                  </h3>
-                  <span className="text-[10px] font-mono font-bold text-theme-dim bg-theme-bg px-2.5 py-0.5 rounded-lg border border-theme-border">
-                    {session.ishihara ? `${session.ishihara.score}/16 Correct` : 'All 16 Plates'}
-                  </span>
-                </div>
-                <button 
-                  onClick={() => setShowIshiharaModal(false)}
-                  className="p-1.5 rounded-full bg-theme-bg border border-theme-border text-theme-dim hover:text-theme-text transition-colors"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              {/* 16 Plate Selector Buttons (1-16) */}
-              <div className="py-2.5 border-b border-theme-border/40">
-                <div className="grid grid-cols-8 gap-1.5">
-                  {ISHIHARA_PLATE_DETAILS.map(detail => {
-                    const ans = session.ishihara?.answers ? session.ishihara.answers[detail.plateNum - 1] : ishiharaAnswers[detail.plateNum - 1];
-                    const isSelected = selectedPlateForInterpretation === detail.plateNum;
-
-                    return (
-                      <button
-                        key={detail.plateNum}
-                        onClick={() => setSelectedPlateForInterpretation(detail.plateNum)}
-                        className={`h-8 sm:h-9 rounded-xl font-mono font-black text-xs transition-all active:scale-95 flex items-center justify-center relative ${
-                          ans === 'correct' 
-                            ? 'bg-green-600/25 border-2 border-green-500 text-green-400 font-bold' 
-                            : ans === 'incorrect' 
-                            ? 'bg-red-600/25 border-2 border-red-500 text-red-400 font-bold' 
-                            : 'bg-theme-bg border border-theme-border text-theme-dim'
-                        } ${isSelected ? (theme === 'light' ? 'ring-2 ring-slate-900 ring-offset-2 ring-offset-theme-surface scale-105 z-10 shadow-md' : 'ring-2 ring-white ring-offset-2 ring-offset-theme-surface scale-105 z-10 shadow-md') : 'opacity-85 hover:opacity-100'}`}
-                      >
-                        <span>{detail.plateNum}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Selected Plate Interpretation Display */}
               {(() => {
-                const curDetail = ISHIHARA_PLATE_DETAILS.find(p => p.plateNum === selectedPlateForInterpretation) || ISHIHARA_PLATE_DETAILS[0];
-                const curAns = session.ishihara?.answers ? session.ishihara.answers[curDetail.plateNum - 1] : ishiharaAnswers[curDetail.plateNum - 1];
+                const activeIshihara = interpretationTarget || session.ishihara;
+                return (
+                  <>
+                    <div className="flex items-center justify-between pb-3 border-b border-theme-border/50">
+                      <div className="flex items-center gap-2.5">
+                        <h3 className="text-base sm:text-lg font-black uppercase italic text-theme-text leading-none">
+                          Ishihara Guide{activeIshihara?.eye ? ` (${activeIshihara.eye})` : ''}
+                        </h3>
+                        <span className="text-[10px] font-mono font-bold text-theme-dim bg-theme-bg px-2.5 py-0.5 rounded-lg border border-theme-border">
+                          {activeIshihara ? `${activeIshihara.score}/16 Correct` : 'All 16 Plates'}
+                        </span>
+                      </div>
+                      <button 
+                        onClick={() => setShowIshiharaModal(false)}
+                        className="p-1.5 rounded-full bg-theme-bg border border-theme-border text-theme-dim hover:text-theme-text transition-colors"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+
+                    {/* 16 Plate Selector Buttons (1-16) */}
+                    <div className="py-2.5 border-b border-theme-border/40">
+                      <div className="grid grid-cols-8 gap-1.5">
+                        {ISHIHARA_PLATE_DETAILS.map(detail => {
+                          const ans = activeIshihara?.answers ? activeIshihara.answers[detail.plateNum - 1] : ishiharaAnswers[detail.plateNum - 1];
+                          const isSelected = selectedPlateForInterpretation === detail.plateNum;
+
+                          return (
+                            <button
+                              key={detail.plateNum}
+                              onClick={() => setSelectedPlateForInterpretation(detail.plateNum)}
+                              className={`h-8 sm:h-9 rounded-xl font-mono font-black text-xs transition-all active:scale-95 flex items-center justify-center relative ${
+                                ans === 'correct' 
+                                  ? 'bg-green-600/25 border-2 border-green-500 text-green-400 font-bold' 
+                                  : ans === 'incorrect' 
+                                  ? 'bg-red-600/25 border-2 border-red-500 text-red-400 font-bold' 
+                                  : 'bg-theme-bg border border-theme-border text-theme-dim'
+                              } ${isSelected ? (theme === 'light' ? 'ring-2 ring-slate-900 ring-offset-2 ring-offset-theme-surface scale-105 z-10 shadow-md' : 'ring-2 ring-white ring-offset-2 ring-offset-theme-surface scale-105 z-10 shadow-md') : 'opacity-85 hover:opacity-100'}`}
+                            >
+                              <span>{detail.plateNum}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Selected Plate Interpretation Display */}
+                    {(() => {
+                      const curDetail = ISHIHARA_PLATE_DETAILS.find(p => p.plateNum === selectedPlateForInterpretation) || ISHIHARA_PLATE_DETAILS[0];
+                      const curAns = activeIshihara?.answers ? activeIshihara.answers[curDetail.plateNum - 1] : ishiharaAnswers[curDetail.plateNum - 1];
 
                 return (
                   <div className="flex-1 overflow-y-auto py-3 space-y-3 font-sans text-theme-text pr-0.5">
@@ -2068,9 +2353,159 @@ export default function App() {
               >
                 Close Interpretation
               </button>
+                  </>
+                );
+              })()}
             </motion.div>
           </div>
         )}
+
+      {/* Amsler Grid Interpretation Modal */}
+      <AnimatePresence>
+        {showAmslerModal && (
+          <div className="fixed inset-0 z-[200] bg-black/65 backdrop-blur-md flex items-center justify-center p-4 sm:p-6">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-theme-surface border-2 border-theme-border/80 rounded-[32px] max-w-lg sm:max-w-xl w-full p-4 sm:p-6 shadow-2xl flex flex-col max-h-[88vh] overflow-hidden"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-theme-border/50">
+                <div className="flex items-center gap-2.5">
+                  <h3 className="text-base sm:text-lg font-black uppercase italic text-theme-text leading-none">
+                    Amsler Grid Interpretation
+                  </h3>
+                  <span className="text-[10px] font-mono font-bold text-theme-dim bg-theme-bg px-2.5 py-0.5 rounded-lg border border-theme-border">
+                    MACULAR FUNCTION
+                  </span>
+                </div>
+                <button 
+                  onClick={() => setShowAmslerModal(false)}
+                  className="p-1.5 rounded-full bg-theme-bg border border-theme-border text-theme-dim hover:text-theme-text transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto py-4 space-y-3.5 font-sans text-theme-text pr-0.5">
+                <div className="p-3.5 rounded-2xl bg-green-500/10 border border-green-500/20 space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-green-500 block">Normal Findings</span>
+                  <p className="text-xs sm:text-sm font-bold text-theme-text leading-relaxed">
+                    All grid lines appear straight, parallel, and unbroken. Squares are uniform in size, and the central fixation dot is clearly visible without any distortion, blurring, or missing areas.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-2.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-500 block">Metamorphopsia (Distortion / Wavy Lines)</span>
+                  <div className="w-full h-40 sm:h-48 rounded-xl overflow-hidden bg-white border border-amber-500/30 flex items-center justify-center">
+                    <img 
+                      src="./assets/aistudio/image_c95e2aa5.png" 
+                      alt="Metamorphopsia Grid" 
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  <p className="text-xs sm:text-sm font-bold text-theme-text leading-relaxed">
+                    Lines appear wavy, curved, crooked, or irregular. This indicates disruption of the normal retinal architecture at the macula, commonly seen in wet age-related macular degeneration (AMD) or epiretinal membranes.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-red-500/10 border border-red-500/20 space-y-2.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-red-500 block">Scotoma (Blind Spot / Missing Area)</span>
+                  <div className="w-full h-40 sm:h-48 rounded-xl overflow-hidden bg-white border border-red-500/30 flex items-center justify-center">
+                    <img 
+                      src="./assets/aistudio/image_a1df31e3.png" 
+                      alt="Scotoma Grid" 
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  <p className="text-xs sm:text-sm font-bold text-theme-text leading-relaxed">
+                    Specific areas where lines are missing, faded, or completely blank. Associated with central scotomas, macular edema, central serous chorioretinopathy, or advanced macular degeneration.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-theme-bg border border-theme-border space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-theme-dim block">Blurring / Faded Vision</span>
+                  <p className="text-xs sm:text-sm font-bold text-theme-text leading-relaxed">
+                    Central or paracentral areas appearing blurry or less distinct than the surrounding grid. Suggests early macular dysfunction or fluid accumulation.
+                  </p>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setShowAmslerModal(false)}
+                className="mt-2 w-full py-3 bg-theme-primary text-white font-black rounded-xl text-xs uppercase tracking-widest active:scale-95 transition-all shadow-md"
+              >
+                Close Interpretation
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ETDRS Conversion Table Modal */}
+      <AnimatePresence>
+        {showConversionModal && (
+          <div className="fixed inset-0 z-[200] bg-black/75 backdrop-blur-md flex items-center justify-center p-4 sm:p-6">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-theme-surface border-2 border-theme-border/80 rounded-[32px] max-w-2xl w-full p-4 sm:p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-theme-border/50">
+                <div className="flex items-center gap-2.5">
+                  <h3 className="text-base sm:text-lg font-black uppercase italic text-theme-text leading-none">
+                    ETDRS Conversion Table
+                  </h3>
+                  <span className="text-[10px] font-mono font-bold text-theme-dim bg-theme-bg px-2.5 py-0.5 rounded-lg border border-theme-border">
+                    REFERENCE
+                  </span>
+                </div>
+                <button 
+                  onClick={() => setShowConversionModal(false)}
+                  className="p-1.5 rounded-full bg-theme-bg border border-theme-border text-theme-dim hover:text-theme-text transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto py-3 pr-1">
+                <div className="rounded-2xl overflow-hidden border border-theme-border bg-theme-surface shadow-inner">
+                  <table className="w-full text-center border-collapse font-mono text-xs sm:text-sm">
+                    <thead>
+                      <tr className="bg-theme-primary text-white font-black uppercase text-[11px] sm:text-xs tracking-wider sticky top-0 z-10 shadow-sm">
+                        <th className="py-3 px-2 border-r border-white/20">Letters</th>
+                        <th className="py-3 px-2 border-r border-white/20">4 Meters</th>
+                        <th className="py-3 px-2 border-r border-white/20">2 Meters</th>
+                        <th className="py-3 px-2 border-r border-white/20">1 Meter</th>
+                        <th className="py-3 px-2">½ Meter</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-theme-border/60">
+                      {ETDRS_CONVERSION_DATA.map((row) => (
+                        <tr key={row.letters} className="hover:bg-theme-primary/5 transition-colors">
+                          <td className="py-2.5 px-2 font-black text-theme-primary border-r border-theme-border/60">{row.letters}</td>
+                          <td className="py-2.5 px-2 text-theme-text font-bold border-r border-theme-border/60">{row.m4}</td>
+                          <td className="py-2.5 px-2 text-theme-text border-r border-theme-border/60">{row.m2}</td>
+                          <td className="py-2.5 px-2 text-theme-text border-r border-theme-border/60">{row.m1}</td>
+                          <td className="py-2.5 px-2 text-theme-text">{row.m05}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setShowConversionModal(false)}
+                className="mt-2 w-full py-3 bg-theme-primary text-white font-black rounded-xl text-xs uppercase tracking-widest active:scale-95 transition-all shadow-md"
+              >
+                Close Table
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
         {/* ETDRS Cancel Confirmation Warning Modal */}
         {showCancelConfirm && (
