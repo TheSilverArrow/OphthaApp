@@ -399,6 +399,7 @@ export default function App() {
   const [showIshiharaModal, setShowIshiharaModal] = useState(false);
   const [showAmslerModal, setShowAmslerModal] = useState(false);
   const [showConversionModal, setShowConversionModal] = useState(false);
+  const [pendingLowVisionConfirm, setPendingLowVisionConfirm] = useState<NonLetterVA | null>(null);
   const [selectedPlateForInterpretation, setSelectedPlateForInterpretation] = useState<number>(1);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [ishiharaEye, setIshiharaEye] = useState<'OD' | 'OS' | 'OU'>('OU');
@@ -646,6 +647,8 @@ export default function App() {
       setShowCFSelector(true);
     } else if (va === 'HM') {
       setShowHMSelector(true);
+    } else if (va === 'LP' || va === 'NLP') {
+      setPendingLowVisionConfirm(va);
     } else {
       handleNext(undefined, va);
     }
@@ -2502,6 +2505,52 @@ export default function App() {
               >
                 Close Table
               </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Low Vision (LP / NLP) Confirmation Modal */}
+      <AnimatePresence>
+        {pendingLowVisionConfirm && (
+          <div className="fixed inset-0 z-[250] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-theme-surface border-2 border-theme-border rounded-[28px] max-w-sm w-full p-5 sm:p-6 shadow-2xl flex flex-col items-center text-center space-y-4"
+            >
+              <div className="w-12 h-12 rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-500 shadow-inner">
+                <AlertTriangle size={24} />
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-lg font-black uppercase italic text-theme-text tracking-tight">
+                  Confirm {pendingLowVisionConfirm}?
+                </h3>
+                <p className="text-xs text-theme-dim leading-relaxed">
+                  You selected <span className="font-bold text-theme-primary">{pendingLowVisionConfirm}</span> ({pendingLowVisionConfirm === 'LP' ? 'Light Perception' : 'No Light Perception'}). This is a terminal low-vision test result. Are you sure?
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 w-full pt-1">
+                <button
+                  onClick={() => setPendingLowVisionConfirm(null)}
+                  className="py-3 px-3 rounded-xl border border-theme-border bg-theme-bg text-theme-text font-black text-xs uppercase tracking-wider hover:bg-theme-border/30 transition-all active:scale-95"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const va = pendingLowVisionConfirm;
+                    setPendingLowVisionConfirm(null);
+                    handleNext(undefined, va);
+                  }}
+                  className="py-3 px-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-black text-xs uppercase tracking-wider transition-all active:scale-95 shadow-lg shadow-red-500/30"
+                >
+                  Confirm {pendingLowVisionConfirm}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
