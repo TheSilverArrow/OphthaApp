@@ -210,15 +210,22 @@ const ETDRS_CONVERSION_DATA = [
   { letters: 70, m4: 10, m2: 20, m1: 40, m05: 80 }
 ];
 
-const generateReportString = (session: SessionData): string => {
-  let ishiharaStr = '';
-  if (session.ishiharaOD) ishiharaStr += `Ishihara OD: ${session.ishiharaOD.score}/16\n`;
-  if (session.ishiharaOS) ishiharaStr += `Ishihara OS: ${session.ishiharaOS.score}/16\n`;
-  if (session.ishiharaOU) ishiharaStr += `Ishihara OU: ${session.ishiharaOU.score}/16\n`;
-  if (!ishiharaStr && session.ishihara) {
-    const eyeLabel = session.ishihara.eye ? ` ${session.ishihara.eye}` : '';
-    ishiharaStr = `Ishihara${eyeLabel}: ${session.ishihara.score}/16\n`;
+const formatIshiharaLine = (label: string, res?: IshiharaResult) => {
+  if (!res) return '';
+  let line = `${label}: ${res.score}/16`;
+  const missedIndices = (res.answers || [])
+    .map((ans, idx) => (ans === 'incorrect' ? idx + 1 : null))
+    .filter((n): n is number => n !== null);
+
+  if (missedIndices.length > 0) {
+    const platesStr = missedIndices.map(n => `#${n}`).join(', ');
+    const plural = missedIndices.length > 1 ? 's' : '';
+    line += ` (missed plate${plural} ${platesStr})`;
   }
+  return line;
+};
+
+const generateReportString = (session: SessionData): string => {
   const body = ['OD', 'OS'].map(eye => {
     const data = session[eye];
     if (!data) return null;
@@ -240,10 +247,10 @@ const generateReportString = (session: SessionData): string => {
 
     if (cc) {
       if (cc.statusLabel === 'NICC') {
-        line += ` NICC`;
+        line += ` > NICC`;
       } else {
         const ccVal = cc.nonLetter || (cc.logMAR !== undefined ? logMARToSnellen(cc.logMAR) : '—');
-        line += ` cc ${ccVal}`;
+        line += ` > cc ${ccVal}`;
       }
     }
 
@@ -251,15 +258,39 @@ const generateReportString = (session: SessionData): string => {
     if (phKey) {
       const phData = data[phKey];
       if (phData.statusLabel === 'NIPH') {
-        line += ` NIPH`;
+        line += ` > NIPH`;
       } else {
         const phVal = phData.nonLetter || (phData.logMAR !== undefined ? logMARToSnellen(phData.logMAR) : '—');
-        line += ` ${phKey.toLowerCase()} ${phVal}`;
+        line += ` > ${phKey.toLowerCase()} ${phVal}`;
       }
     }
     return line;
   }).filter(Boolean).join('\n');
-  return ishiharaStr + body;
+
+  let ishiharaStr = '';
+  if (session.ishiharaOU) {
+    ishiharaStr = formatIshiharaLine('Ishihara OU', session.ishiharaOU);
+  } else if (session.ishiharaOD && session.ishiharaOS) {
+    if (
+      session.ishiharaOD.score === session.ishiharaOS.score &&
+      JSON.stringify(session.ishiharaOD.answers) === JSON.stringify(session.ishiharaOS.answers)
+    ) {
+      ishiharaStr = formatIshiharaLine('Ishihara OU', session.ishiharaOD);
+    } else {
+      const odLine = formatIshiharaLine('Ishihara OD', session.ishiharaOD);
+      const osLine = formatIshiharaLine('Ishihara OS', session.ishiharaOS);
+      ishiharaStr = [odLine, osLine].filter(Boolean).join('\n');
+    }
+  } else if (session.ishiharaOD) {
+    ishiharaStr = formatIshiharaLine('Ishihara OD', session.ishiharaOD);
+  } else if (session.ishiharaOS) {
+    ishiharaStr = formatIshiharaLine('Ishihara OS', session.ishiharaOS);
+  } else if (session.ishihara) {
+    const eyeLabel = session.ishihara.eye ? ` ${session.ishihara.eye}` : '';
+    ishiharaStr = formatIshiharaLine(`Ishihara${eyeLabel}`, session.ishihara);
+  }
+
+  return body + (ishiharaStr ? (body ? '\n' : '') + ishiharaStr : '');
 };
 
 const AnimatedLogo = () => (
