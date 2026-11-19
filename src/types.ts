@@ -1,5 +1,6 @@
 export type Eye = 'OD' | 'OS';
 export type TestMode = 'SC' | 'CC' | 'SCPH' | 'CCPH';
+export type ChartType = 'letters' | 'numbers';
 
 export interface Letter {
   char: string;

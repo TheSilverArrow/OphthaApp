@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Eye, TestMode, Row, SessionData, NonLetterVA, Stage, IshiharaResult } from './types';
-import { getInitialRows, logMARToSnellen, logMARToMetric } from './constants';
+import { Eye, TestMode, ChartType, Row, SessionData, NonLetterVA, Stage, IshiharaResult } from './types';
+import { getInitialRows, applyChartTypeToRows, logMARToSnellen, logMARToMetric } from './constants';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Eye as EyeIcon, 
@@ -407,7 +407,15 @@ export default function App() {
   const [currentStage, setCurrentStage] = useState<Stage>('EYE_INIT');
   const [currentEye, setCurrentEye] = useState<Eye>('OD');
   const [currentMode, setCurrentMode] = useState<TestMode>('SC');
-  const [rows, setRows] = useState<Row[]>(getInitialRows());
+  const [chartType, setChartType] = useState<ChartType>(() => {
+    if (typeof window !== 'undefined' && localStorage.getItem('ophtha_chart_type') === 'numbers') {
+      return 'numbers';
+    }
+    return 'letters';
+  });
+  const [rows, setRows] = useState<Row[]>(() => getInitialRows(
+    typeof window !== 'undefined' && localStorage.getItem('ophtha_chart_type') === 'numbers' ? 'numbers' : 'letters'
+  ));
   const [session, setSession] = useState<SessionData>({});
   const [hasCorrection, setHasCorrection] = useState<boolean | null>(null);
   const [showCFSelector, setShowCFSelector] = useState(false);
@@ -435,6 +443,12 @@ export default function App() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [ishiharaEye, setIshiharaEye] = useState<'OD' | 'OS' | 'OU'>('OU');
   const [interpretationTarget, setInterpretationTarget] = useState<IshiharaResult | null>(null);
+
+  const handleChartTypeChange = (type: ChartType) => {
+    setChartType(type);
+    localStorage.setItem('ophtha_chart_type', type);
+    setRows(prev => applyChartTypeToRows(prev, type));
+  };
 
   const startIshihara = (eye: 'OD' | 'OS' | 'OU') => {
     setIshiharaEye(eye);
@@ -739,7 +753,7 @@ export default function App() {
   const advanceToNext = (nextContext: {eye?: Eye, mode?: TestMode, stage: Stage}) => {
     if (nextContext.eye) setCurrentEye(nextContext.eye);
     if (nextContext.mode) setCurrentMode(nextContext.mode);
-    if (nextContext.stage.startsWith('TEST_')) setRows(getInitialRows());
+    if (nextContext.stage.startsWith('TEST_')) setRows(getInitialRows(chartType));
     setCurrentStage(nextContext.stage);
   };
 
@@ -852,7 +866,7 @@ export default function App() {
     setCurrentStage('EYE_INIT');
     setCurrentEye('OD');
     setCurrentMode('SC');
-    setRows(getInitialRows());
+    setRows(getInitialRows(chartType));
     setSession({});
     setHasCorrection(null);
     setTestDistance(4);
@@ -1239,6 +1253,32 @@ export default function App() {
                   </div>
 
                   <div className="flex flex-col w-full gap-2.5 my-1">
+                    {/* Chart Optotype Switcher (Letters / Numbers) */}
+                    <div className="grid grid-cols-2 gap-1 bg-theme-surface p-1 rounded-xl border border-theme-border shadow-inner">
+                      <button
+                        type="button"
+                        onClick={() => handleChartTypeChange('letters')}
+                        className={`py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+                          chartType === 'letters'
+                            ? 'bg-theme-primary text-white shadow-md'
+                            : 'text-theme-dim hover:text-theme-text'
+                        }`}
+                      >
+                        Letters (ABC)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleChartTypeChange('numbers')}
+                        className={`py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
+                          chartType === 'numbers'
+                            ? 'bg-theme-primary text-white shadow-md'
+                            : 'text-theme-dim hover:text-theme-text'
+                        }`}
+                      >
+                        Numbers (123)
+                      </button>
+                    </div>
+
                     <input 
                       type="text" 
                       placeholder="Patient Name (Optional)" 
@@ -1251,7 +1291,7 @@ export default function App() {
                       onClick={() => {
                         setSession({});
                         setHasCorrection(null);
-                        setRows(getInitialRows());
+                        setRows(getInitialRows(chartType));
                         setTestDistance(4);
                         setStartingEye('OD');
                         setCurrentEye('OD');
@@ -1267,7 +1307,7 @@ export default function App() {
                       onClick={() => {
                         setSession({});
                         setHasCorrection(null);
-                        setRows(getInitialRows());
+                        setRows(getInitialRows(chartType));
                         setTestDistance(4);
                         setStartingEye('OS');
                         setCurrentEye('OS');
@@ -1293,7 +1333,7 @@ export default function App() {
                           setStartingEye('OD');
                           setCurrentEye('OD');
                           setCurrentMode('SC');
-                          setRows(getInitialRows());
+                          setRows(getInitialRows(chartType));
                           setCurrentStage('TEST_SC');
                           setTestDistance(4);
                         }}
@@ -1404,9 +1444,9 @@ export default function App() {
                                 setCurrentMode(step.mode);
                                 const stepData = session[step.eye]?.[step.mode];
                                 if (stepData?.gridState) {
-                                  setRows(JSON.parse(JSON.stringify(stepData.gridState)));
+                                  setRows(applyChartTypeToRows(JSON.parse(JSON.stringify(stepData.gridState)), chartType));
                                 } else {
-                                  setRows(getInitialRows());
+                                  setRows(getInitialRows(chartType));
                                 }
                                 if (stepData?.testDistance) {
                                   setTestDistance(stepData.testDistance);
@@ -1427,14 +1467,44 @@ export default function App() {
                       })}
                     </div>
 
-                    {/* Cancel ETDRS Button */}
-                    <button
-                      onClick={() => setShowCancelConfirm(true)}
-                      className="flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider text-theme-dim hover:text-red-500 bg-theme-surface border border-theme-border hover:border-red-500/40 transition-all active:scale-95 shadow-sm shrink-0"
-                      title="Cancel test and reset"
-                    >
-                      <X size={12} /> Cancel
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Quick Letters / Numbers Toggle */}
+                      <div className="flex items-center bg-theme-surface border border-theme-border rounded-full p-0.5 shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => handleChartTypeChange('letters')}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all ${
+                            chartType === 'letters'
+                              ? 'bg-theme-primary text-white shadow-sm'
+                              : 'text-theme-dim hover:text-theme-text'
+                          }`}
+                          title="ETDRS Letters Chart"
+                        >
+                          ABC
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleChartTypeChange('numbers')}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all ${
+                            chartType === 'numbers'
+                              ? 'bg-theme-primary text-white shadow-sm'
+                              : 'text-theme-dim hover:text-theme-text'
+                          }`}
+                          title="LVRC Numbers Chart"
+                        >
+                          123
+                        </button>
+                      </div>
+
+                      {/* Cancel ETDRS Button */}
+                      <button
+                        onClick={() => setShowCancelConfirm(true)}
+                        className="flex items-center gap-1 px-2.5 sm:px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider text-theme-dim hover:text-red-500 bg-theme-surface border border-theme-border hover:border-red-500/40 transition-all active:scale-95 shadow-sm shrink-0"
+                        title="Cancel test and reset"
+                      >
+                        <X size={12} /> Cancel
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex gap-1 w-full items-stretch flex-1 min-h-0 my-0.5">
@@ -1486,7 +1556,7 @@ export default function App() {
                                           className="bottom-full left-1/2 mb-3 -translate-x-1/2"
                                           arrowClassName="top-full left-1/2 border-t-blue-600/90 -translate-x-1/2"
                                         >
-                                          <span className="font-black text-xs">Individual Letter</span><br/>Click to toggle it singly.
+                                          <span className="font-black text-xs">Individual {chartType === 'numbers' ? 'Number' : 'Letter'}</span><br/>Click to toggle it singly.
                                         </TutorialTooltip>
                                       )}
                                     </button>
@@ -2106,6 +2176,29 @@ export default function App() {
                     >
                       <Moon size={16} className={theme === 'dark' ? 'fill-blue-400' : ''} />
                       <span className="text-[10px] uppercase tracking-tighter">Dark</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-theme-surface p-6 rounded-[32px] border border-theme-border shadow-xl space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col">
+                    <span className="text-theme-text font-black uppercase text-sm italic">ETDRS Chart</span>
+                    <span className="text-theme-dim text-[10px] uppercase font-mono tracking-wider">Optotype Style</span>
+                  </div>
+                  <div className="flex bg-theme-bg p-1 rounded-2xl border border-theme-border shadow-inner">
+                    <button 
+                      onClick={() => handleChartTypeChange('letters')}
+                      className={`px-3.5 py-2 rounded-xl transition-all text-[10px] uppercase tracking-tighter ${chartType === 'letters' ? 'bg-theme-primary text-white shadow-md font-black' : 'text-theme-dim hover:text-theme-text font-bold'}`}
+                    >
+                      Letters
+                    </button>
+                    <button 
+                      onClick={() => handleChartTypeChange('numbers')}
+                      className={`px-3.5 py-2 rounded-xl transition-all text-[10px] uppercase tracking-tighter ${chartType === 'numbers' ? 'bg-theme-primary text-white shadow-md font-black' : 'text-theme-dim hover:text-theme-text font-bold'}`}
+                    >
+                      Numbers
                     </button>
                   </div>
                 </div>
