@@ -910,7 +910,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              style={{ backgroundColor: ['#FF0000', '#FFFF00', '#0000FF', '#008000'][colorTestIndex] }}
+              style={{ backgroundColor: ['#FF0000', '#fafb07', '#0000FF', '#03cb08'][colorTestIndex] }}
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const x = e.clientX - rect.left;
@@ -1239,7 +1239,7 @@ export default function App() {
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 1.05 }}
-                  className="flex flex-col items-center justify-center text-center max-w-sm mx-auto h-full max-h-[580px] py-1 gap-2"
+                  className="flex flex-col items-center justify-center text-center max-w-sm mx-auto h-full max-h-[640px] py-1 gap-2"
                 >
                   {/* Logo and Title grouped tightly together */}
                   <div className="flex flex-col items-center gap-0">
@@ -1320,12 +1320,12 @@ export default function App() {
                     </button>
                   </div>
                   
-                    <div className="flex flex-col sm:flex-row gap-2 w-full pt-1">
+                    <div className="flex flex-row items-stretch gap-2 w-full pt-1">
                       <button 
                         onClick={() => setShowConversionModal(true)}
-                        className="flex-1 bg-theme-surface border border-theme-border text-theme-text font-black py-3 px-4 rounded-2xl shadow-sm transition-all active:scale-95 text-xs uppercase tracking-wider hover:border-theme-primary/50 flex items-center justify-center gap-2"
+                        className="flex-1 bg-theme-surface border border-theme-border text-theme-text font-black py-3 px-2.5 sm:px-3 rounded-2xl shadow-sm transition-all active:scale-95 text-[11px] sm:text-xs uppercase tracking-wide hover:border-theme-primary/50 flex items-center justify-center gap-1.5 leading-tight"
                       >
-                        <ClipboardList size={16} className="text-theme-primary" /> ETDRS Conversion Table
+                        <ClipboardList size={15} className="text-theme-primary shrink-0" /> <span>ETDRS Conversion Table</span>
                       </button>
                       <button 
                         onClick={() => {
@@ -1337,10 +1337,26 @@ export default function App() {
                           setCurrentStage('TEST_SC');
                           setTestDistance(4);
                         }}
-                        className="px-4 py-3 rounded-2xl border border-theme-border text-theme-dim text-xs font-black uppercase tracking-wider hover:text-white transition-all active:scale-95"
+                        className="shrink-0 px-3 sm:px-4 py-3 rounded-2xl border border-theme-border text-theme-dim text-[11px] sm:text-xs font-black uppercase tracking-wide hover:text-theme-text transition-all active:scale-95 flex items-center justify-center whitespace-nowrap"
                       >
                         Tutorial Mode
                       </button>
+                    </div>
+
+                    <div
+                      className={`w-full rounded-2xl border px-3.5 py-2.5 mt-1 flex items-center gap-2.5 text-left shadow-sm ${
+                        theme === 'light'
+                          ? 'bg-amber-50 border-amber-300 text-amber-950'
+                          : 'bg-amber-500/15 border-amber-400/40 text-amber-100'
+                      }`}
+                    >
+                      <Info
+                        size={16}
+                        className={`shrink-0 ${theme === 'light' ? 'text-amber-600' : 'text-amber-400'}`}
+                      />
+                      <p className="text-xs leading-snug font-semibold">
+                        For reference only—it is still best practice to document VA immediately after each step.
+                      </p>
                     </div>
                 </motion.div>
               )}
@@ -1817,9 +1833,9 @@ export default function App() {
                     >
                       <div className="flex gap-1.5">
                         <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                        <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#fafb07]" />
                         <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                        <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#03cb08]" />
                       </div>
                       <span>Test 4/4 Colors</span>
                     </button>
@@ -2027,8 +2043,8 @@ export default function App() {
                 className="group relative h-48 bg-theme-surface border border-theme-border rounded-[40px] overflow-hidden shadow-2xl transition-all active:scale-95"
               >
                 <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 opacity-20 group-hover:opacity-30 transition-opacity">
-                  <div className="bg-red-500"/><div className="bg-yellow-500"/>
-                  <div className="bg-blue-500"/><div className="bg-green-500"/>
+                  <div className="bg-red-500"/><div className="bg-[#fafb07]"/>
+                  <div className="bg-blue-500"/><div className="bg-[#03cb08]"/>
                 </div>
                 <div className="relative z-10 flex flex-col items-center justify-center h-full space-y-3">
                   <div className="w-16 h-16 bg-theme-bg/5 rounded-full flex items-center justify-center border border-theme-border group-hover:border-theme-primary/50 transition-colors">
