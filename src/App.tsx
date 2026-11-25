@@ -21,8 +21,10 @@ import {
   Info,
   X,
   AlertTriangle,
-  Grid3x3
+  Grid3x3,
+  Shapes
 } from 'lucide-react';
+import ShapesAnnouncer from './components/ShapesAnnouncer';
 
 interface HistoryEntry {
   id: string;
@@ -1239,7 +1241,7 @@ export default function App() {
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 1.05 }}
-                  className="flex flex-col items-center justify-center text-center max-w-sm mx-auto h-full max-h-[640px] py-1 gap-2"
+                  className="flex flex-col items-center justify-center text-center max-w-sm mx-auto w-full min-h-full py-2 gap-2"
                 >
                   {/* Logo and Title grouped tightly together */}
                   <div className="flex flex-col items-center gap-0">
@@ -1287,37 +1289,41 @@ export default function App() {
                       className="w-full bg-theme-surface border border-theme-border rounded-xl px-4 py-2.5 text-theme-text text-sm font-bold text-center placeholder:text-theme-dim/50 focus:outline-none focus:border-theme-primary transition-all shadow-inner"
                     />
 
-                    <button 
-                      onClick={() => {
-                        setSession({});
-                        setHasCorrection(null);
-                        setRows(getInitialRows(chartType));
-                        setTestDistance(4);
-                        setStartingEye('OD');
-                        setCurrentEye('OD');
-                        setCurrentStage('TEST_SC');
-                      }}
-                      className="group relative bg-theme-primary text-white font-black py-4 sm:py-5 rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 text-base overflow-hidden"
-                    >
-                      <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-                      <span className="relative z-10 flex items-center gap-2">START WITH OD <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" /></span>
-                    </button>
+                    <div className="grid grid-cols-2 gap-2.5 w-full">
+                      <button 
+                        onClick={() => {
+                          setSession({});
+                          setHasCorrection(null);
+                          setRows(getInitialRows(chartType));
+                          setTestDistance(4);
+                          setStartingEye('OD');
+                          setCurrentEye('OD');
+                          setCurrentStage('TEST_SC');
+                        }}
+                        className="group relative bg-theme-primary text-white font-black h-40 sm:h-44 px-3 rounded-2xl shadow-xl transition-all active:scale-95 flex flex-col items-center justify-center gap-1 overflow-hidden"
+                      >
+                        <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                        <span className="relative z-10 text-[11px] sm:text-xs font-bold uppercase tracking-widest opacity-85">START WITH</span>
+                        <span className="relative z-10 flex items-center gap-1 text-3xl sm:text-4xl font-black tracking-tight">OD <ChevronRight size={24} className="group-hover:translate-x-0.5 transition-transform shrink-0" /></span>
+                      </button>
 
-                    <button 
-                      onClick={() => {
-                        setSession({});
-                        setHasCorrection(null);
-                        setRows(getInitialRows(chartType));
-                        setTestDistance(4);
-                        setStartingEye('OS');
-                        setCurrentEye('OS');
-                        setCurrentStage('TEST_SC');
-                      }}
-                      className="group relative bg-theme-surface border-2 border-theme-primary/20 text-theme-primary font-black py-4 sm:py-5 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 text-base overflow-hidden"
-                    >
-                      <div className="absolute inset-0 bg-theme-primary/5 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-                      <span className="relative z-10 flex items-center gap-2 uppercase">Start with OS <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" /></span>
-                    </button>
+                      <button 
+                        onClick={() => {
+                          setSession({});
+                          setHasCorrection(null);
+                          setRows(getInitialRows(chartType));
+                          setTestDistance(4);
+                          setStartingEye('OS');
+                          setCurrentEye('OS');
+                          setCurrentStage('TEST_SC');
+                        }}
+                        className="group relative bg-theme-surface border-2 border-theme-primary/20 text-theme-primary font-black h-40 sm:h-44 px-3 rounded-2xl shadow-lg transition-all active:scale-95 flex flex-col items-center justify-center gap-1 overflow-hidden"
+                      >
+                        <div className="absolute inset-0 bg-theme-primary/5 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                        <span className="relative z-10 text-[11px] sm:text-xs font-bold uppercase tracking-widest opacity-80">START WITH</span>
+                        <span className="relative z-10 flex items-center gap-1 text-3xl sm:text-4xl font-black tracking-tight">OS <ChevronRight size={24} className="group-hover:translate-x-0.5 transition-transform shrink-0" /></span>
+                      </button>
+                    </div>
                   </div>
                   
                     <div className="flex flex-row items-stretch gap-2 w-full pt-1">
@@ -2023,6 +2029,8 @@ export default function App() {
               </button>
             </div>
           </motion.div>
+        ) : activeTab === 'shapes' ? (
+          <ShapesAnnouncer />
         ) : activeTab === 'exam' ? (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -2356,6 +2364,12 @@ export default function App() {
           onClick={() => setActiveTab('amsler')} 
           icon={<Grid3x3 size={20} />} 
           label="Amsler" 
+        />
+        <TabItem 
+          active={activeTab === 'shapes'} 
+          onClick={() => setActiveTab('shapes')} 
+          icon={<Shapes size={20} />} 
+          label="Shapes" 
         />
         <TabItem 
           active={activeTab === 'history'} 
@@ -2747,7 +2761,7 @@ function TabItem({ active, onClick, icon, label }: { active: boolean, onClick: (
   return (
     <button 
       onClick={onClick}
-      className={`flex flex-col items-center gap-1 transition-all w-16 relative ${active ? 'text-theme-primary' : 'text-theme-dim'}`}
+      className={`flex flex-col items-center gap-1 transition-all flex-1 min-w-0 relative ${active ? 'text-theme-primary' : 'text-theme-dim'}`}
     >
       <div className={`p-1.5 rounded-xl transition-all duration-300 ${active ? 'bg-theme-primary text-white shadow-lg shadow-theme-primary/20 -translate-y-0.5' : 'hover:bg-theme-dim/10'}`}>
         {icon}

@@ -2,5 +2,7 @@
   "name": "Ophtha Rotations",
   "description": "A comprehensive tool for ophthalmology rotations including an interactive ETDRS chart scorer, VA tracking, and professional clinical utilities.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
