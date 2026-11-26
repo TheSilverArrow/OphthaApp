@@ -23,33 +23,23 @@ const PATTI_PICS_SHAPES: ShapeItem[] = [
   { id: 'star', name: 'Star' },
 ];
 
-const NOVELTY_VOICE_PATTERN =
-  /albert|bad news|bahh|bells|boing|bubbles|cellos|eddy|flo|good news|grandma|grandpa|jester|junior|kathy|organ|ralph|reed|rocko|sandy|shelley|superstar|trinoids|whisper|wobble|zarvox/i;
-
-const FALLBACK_VOICE_OPTIONS: VoiceOption[] = [
-  { id: 'preset-standard', label: 'Standard Voice', pitch: 1.0, rate: 0.88 },
-  { id: 'preset-clear-slow', label: 'Slow & Clear', pitch: 1.0, rate: 0.72 },
-  { id: 'preset-higher', label: 'Bright / Higher', pitch: 1.25, rate: 0.9 },
-  { id: 'preset-deeper', label: 'Deep / Lower', pitch: 0.78, rate: 0.85 },
+const ALLOWED_VOICES: ReadonlyArray<{
+  id: 'ana' | 'brian' | 'sam';
+  label: 'Ana' | 'Brian' | 'Sam';
+  fallbackPitch: number;
+  fallbackRate: number;
+}> = [
+  { id: 'ana', label: 'Ana', fallbackPitch: 1.12, fallbackRate: 0.9 },
+  { id: 'brian', label: 'Brian', fallbackPitch: 0.94, fallbackRate: 0.88 },
+  { id: 'sam', label: 'Sam', fallbackPitch: 0.82, fallbackRate: 0.86 },
 ];
 
-function formatRegionTag(lang: string): string {
-  const parts = lang.replace('_', '-').split('-');
-  if (parts.length < 2) return '';
-  const region = parts[1].toUpperCase();
-  const labels: Record<string, string> = {
-    US: 'US',
-    GB: 'UK',
-    AU: 'AU',
-    IE: 'IE',
-    IN: 'IN',
-    ZA: 'ZA',
-    CA: 'CA',
-    NZ: 'NZ',
-    PH: 'PH',
-  };
-  return labels[region] || region;
-}
+const DEFAULT_VOICE_OPTIONS: VoiceOption[] = ALLOWED_VOICES.map((v) => ({
+  id: v.id,
+  label: v.label,
+  pitch: 1.0,
+  rate: 0.9,
+}));
 
 function ShapeOptotype({ id, className }: { id: ShapeItem['id']; className?: string }) {
   switch (id) {
@@ -90,12 +80,15 @@ function ShapeOptotype({ id, className }: { id: ShapeItem['id']; className?: str
 
 export default function ShapesAnnouncer() {
   const [activeShapeId, setActiveShapeId] = useState<ShapeItem['id'] | null>(null);
-  const [voiceOptions, setVoiceOptions] = useState<VoiceOption[]>(FALLBACK_VOICE_OPTIONS);
+  const [voiceOptions, setVoiceOptions] = useState<VoiceOption[]>(DEFAULT_VOICE_OPTIONS);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('ophtha_shapes_voice') || FALLBACK_VOICE_OPTIONS[0].id;
+      const saved = localStorage.getItem('ophtha_shapes_voice');
+      if (saved && ALLOWED_VOICES.some((v) => v.id === saved)) {
+        return saved;
+      }
     }
-    return FALLBACK_VOICE_OPTIONS[0].id;
+    return DEFAULT_VOICE_OPTIONS[0].id;
   });
 
   const systemVoicesRef = useRef<SpeechSynthesisVoice[]>([]);
@@ -111,55 +104,49 @@ export default function ShapesAnnouncer() {
       if (!allVoices.length) return;
       systemVoicesRef.current = allVoices;
 
-      const englishVoices = allVoices.filter(v => v.lang.toLowerCase().startsWith('en'));
-      const pool = englishVoices.length > 0 ? englishVoices : allVoices;
-      const cleanPool = pool.filter(v => !NOVELTY_VOICE_PATTERN.test(v.name));
-      const usableVoices = cleanPool.length > 0 ? cleanPool : pool;
+      const englishFallback =
+        allVoices.find((v) => v.lang.toLowerCase() === 'en-us') ||
+        allVoices.find((v) => v.lang.toLowerCase().startsWith('en'));
 
-      // Deduplicate by display label and prioritize natural US/UK/AU voices first
-      const seen = new Set<string>();
-      const deduped: SpeechSynthesisVoice[] = [];
-      for (const v of usableVoices) {
-        const key = `${v.name.toLowerCase()}-${v.lang.toLowerCase()}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          deduped.push(v);
+      const mapped: VoiceOption[] = ALLOWED_VOICES.map((target) => {
+        const msRegex = new RegExp(`\\bmicrosoft\\b.*\\b${target.label}\\b`, 'i');
+        const candidates = allVoices.filter((v) => msRegex.test(v.name));
+
+        candidates.sort((a, b) => {
+          const score = (v: SpeechSynthesisVoice) => {
+            let s = 0;
+            if (v.lang.toLowerCase().startsWith('en')) s += 10;
+            if (v.lang.toLowerCase() === 'en-us') s += 4;
+            if (/natural|online/i.test(v.name)) s += 2;
+            if (v.localService) s += 1;
+            return s;
+          };
+          return score(b) - score(a);
+        });
+
+        const matched = candidates[0];
+        if (matched) {
+          return {
+            id: target.id,
+            label: target.label,
+            voiceURI: matched.voiceURI,
+            pitch: 1.0,
+            rate: 0.9,
+          };
         }
-      }
 
-      deduped.sort((a, b) => {
-        const score = (v: SpeechSynthesisVoice) => {
-          let s = 0;
-          if (/samantha|google us english|aria|jenny|daniel|karen|aaron|nicky/i.test(v.name)) s += 4;
-          if (v.lang.toLowerCase() === 'en-us') s += 3;
-          else if (v.lang.toLowerCase() === 'en-gb') s += 2;
-          if (v.localService) s += 1;
-          return s;
+        return {
+          id: target.id,
+          label: target.label,
+          voiceURI: englishFallback?.voiceURI,
+          pitch: target.fallbackPitch,
+          rate: target.fallbackRate,
         };
-        return score(b) - score(a) || a.name.localeCompare(b.name);
       });
 
-      const mapped: VoiceOption[] =
-        deduped.length > 1
-          ? deduped.map(v => {
-              const region = formatRegionTag(v.lang);
-              const cleanName = v.name.replace(/\s*\([^)]*\)\s*/g, '').trim();
-              return {
-                id: v.voiceURI,
-                label: region ? `${cleanName} (${region})` : cleanName,
-                voiceURI: v.voiceURI,
-                pitch: 1.0,
-                rate: 0.88,
-              };
-            })
-          : FALLBACK_VOICE_OPTIONS.map(opt => ({
-              ...opt,
-              voiceURI: deduped[0]?.voiceURI,
-            }));
-
       setVoiceOptions(mapped);
-      setSelectedVoiceId(prev => {
-        if (mapped.some(o => o.id === prev)) return prev;
+      setSelectedVoiceId((prev) => {
+        if (mapped.some((o) => o.id === prev)) return prev;
         const firstId = mapped[0].id;
         localStorage.setItem('ophtha_shapes_voice', firstId);
         return firstId;
@@ -252,11 +239,11 @@ export default function ShapesAnnouncer() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="flex flex-col h-full max-w-xl mx-auto px-2.5 pt-2 pb-2 w-full select-none"
+      className="flex flex-col h-full max-w-xl mx-auto px-2.5 py-2 w-full min-w-0 overflow-hidden select-none"
     >
       {/* Only setting: compact voice picker */}
-      <div className="flex items-center gap-2 mb-2 shrink-0">
-        <div className="flex items-center gap-2 flex-1 bg-theme-surface border border-theme-border rounded-xl px-3 py-1.5 shadow-sm">
+      <div className="flex items-center gap-2 mb-2 shrink-0 w-full min-w-0">
+        <div className="flex items-center gap-2 flex-1 min-w-0 w-full overflow-hidden bg-theme-surface border border-theme-border rounded-xl px-3 py-1.5 shadow-sm">
           <Volume2 size={15} className="text-theme-primary shrink-0" />
           <label htmlFor="shapes-voice-select" className="text-[10px] font-black uppercase tracking-wider text-theme-dim shrink-0">
             Voice
@@ -265,7 +252,7 @@ export default function ShapesAnnouncer() {
             id="shapes-voice-select"
             value={selectedVoiceId}
             onChange={(e) => handleVoiceChange(e.target.value)}
-            className="flex-1 min-w-0 bg-transparent text-theme-text text-xs font-bold focus:outline-none truncate cursor-pointer"
+            className="flex-1 min-w-0 w-full max-w-full bg-transparent text-theme-text text-xs font-bold focus:outline-none truncate cursor-pointer"
           >
             {voiceOptions.map((option) => (
               <option key={option.id} value={option.id} className="bg-zinc-900 text-white">
@@ -276,8 +263,8 @@ export default function ShapesAnnouncer() {
         </div>
       </div>
 
-      {/* Maximized 5 Patti Pics Shape Buttons (labels hidden, identical box sizes) */}
-      <div className="grid grid-cols-4 grid-rows-3 gap-2.5 flex-1 min-h-0">
+      {/* Maximized 5 Patti Pics Shape Buttons (labels hidden, identical box sizes, no scroll) */}
+      <div className="grid grid-cols-4 grid-rows-3 gap-2.5 flex-1 min-h-0 min-w-0 w-full p-0.5 overflow-hidden">
         {PATTI_PICS_SHAPES.map((shape, idx) => {
           const isSpeaking = activeShapeId === shape.id;
           const isFifth = idx === 4;
@@ -289,17 +276,17 @@ export default function ShapesAnnouncer() {
               whileTap={{ scale: 0.94 }}
               onClick={() => announceShape(shape)}
               aria-label={shape.name}
-              className={`relative col-span-2 rounded-[24px] sm:rounded-[28px] border-2 flex items-center justify-center p-2 sm:p-3 transition-all shadow-lg overflow-hidden bg-white text-zinc-950 ${
+              className={`relative col-span-2 min-w-0 min-h-0 w-full h-full rounded-[24px] sm:rounded-[28px] border-2 flex items-center justify-center p-3.5 sm:p-5 transition-all shadow-lg overflow-hidden bg-white text-zinc-950 ${
                 isFifth ? 'col-start-2' : ''
               } ${
                 isSpeaking
-                  ? 'border-blue-500 ring-4 ring-blue-500/35 shadow-blue-500/25'
-                  : 'border-zinc-200 hover:border-blue-400/70'
+                  ? 'border-theme-primary ring-4 ring-theme-primary/35 shadow-theme-primary/25'
+                  : 'border-zinc-200 hover:border-theme-primary/70'
               }`}
             >
               <ShapeOptotype
                 id={shape.id}
-                className="h-full max-h-[88%] max-w-[88%] aspect-square text-zinc-950"
+                className="w-full h-full max-w-full max-h-full text-zinc-950"
               />
             </motion.button>
           );

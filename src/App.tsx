@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, Suspense, lazy } from 'react';
 import { Eye, TestMode, ChartType, Row, SessionData, NonLetterVA, Stage, IshiharaResult } from './types';
 import { getInitialRows, applyChartTypeToRows, logMARToSnellen, logMARToMetric } from './constants';
 import { motion, AnimatePresence } from 'motion/react';
@@ -16,15 +16,17 @@ import {
   ChevronLeft,
   Trash2,
   Share2,
-  Sun,
-  Moon,
   Info,
   X,
   AlertTriangle,
   Grid3x3,
   Shapes
 } from 'lucide-react';
-import ShapesAnnouncer from './components/ShapesAnnouncer';
+import ChartTypeSwitch from './components/ChartTypeSwitch';
+import ThemeToggleSwitch from './components/ThemeToggleSwitch';
+
+const ShapesAnnouncer = lazy(() => import('./components/ShapesAnnouncer'));
+const SetupFeedbackSection = lazy(() => import('./components/SetupFeedbackSection'));
 
 interface HistoryEntry {
   id: string;
@@ -296,7 +298,7 @@ const generateReportString = (session: SessionData): string => {
 };
 
 const AnimatedLogo = () => (
-  <div className="relative w-32 h-32 sm:w-36 sm:h-36 flex items-center justify-center shrink-0">
+  <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center shrink-0">
     <motion.div
       animate={{ 
         scale: [1, 1.02, 1],
@@ -307,9 +309,9 @@ const AnimatedLogo = () => (
         repeat: Infinity, 
         ease: "easeInOut" 
       }}
-      className="relative z-10 bg-theme-surface border border-theme-border rounded-[32px] sm:rounded-[40px] p-5 sm:p-6 shadow-2xl"
+      className="relative z-10 bg-theme-surface border border-theme-border rounded-2xl p-2.5 shadow-lg"
     >
-      <svg width="68" height="68" className="sm:w-20 sm:h-20" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg width="36" height="36" className="sm:w-10 sm:h-10" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
         {/* Outer Pulsing Glow */}
         <motion.circle 
           cx="50" cy="50" r="48" 
@@ -427,6 +429,18 @@ export default function App() {
   const [notationMode, setNotationMode] = useState<'snellen' | 'logmar'>('snellen');
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [accentHue, setAccentHue] = useState<number | null>(() => {
+    if (typeof window !== 'undefined') {
+      const savedHue = localStorage.getItem('ophtha_accent_hue');
+      if (savedHue !== null) {
+        const parsed = Number(savedHue);
+        if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 360) {
+          return parsed;
+        }
+      }
+    }
+    return null;
+  });
   const [lastSavedSession, setLastSavedSession] = useState<string>('');
   const [startingEye, setStartingEye] = useState<Eye>('OD');
   const [isTutorial, setIsTutorial] = useState(false);
@@ -445,6 +459,7 @@ export default function App() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [ishiharaEye, setIshiharaEye] = useState<'OD' | 'OS' | 'OU'>('OU');
   const [interpretationTarget, setInterpretationTarget] = useState<IshiharaResult | null>(null);
+  const [loadedPlates, setLoadedPlates] = useState<Record<number, boolean>>({});
 
   const handleChartTypeChange = (type: ChartType) => {
     setChartType(type);
@@ -467,7 +482,17 @@ export default function App() {
     const saved = localStorage.getItem('ophtha_history');
     if (saved) {
       try {
-        setHistory(JSON.parse(saved));
+        const parsed: HistoryEntry[] = JSON.parse(saved);
+        const seenIds = new Set<string>();
+        const normalized = parsed.map((item, idx) => {
+          let id = item.id;
+          if (!id || seenIds.has(id)) {
+            id = `${item.timestamp || Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`;
+          }
+          seenIds.add(id);
+          return { ...item, id };
+        });
+        setHistory(normalized);
       } catch (e) {
         console.error('Failed to load history', e);
       }
@@ -484,7 +509,7 @@ export default function App() {
     localStorage.setItem('ophtha_history', JSON.stringify(history));
   }, [history]);
 
-  // Handle theme changes
+  // Handle theme and accent color changes
   useEffect(() => {
     const root = document.documentElement;
     if (theme === 'light') {
@@ -495,24 +520,37 @@ export default function App() {
       root.classList.add('dark');
     }
     localStorage.setItem('ophtha_theme', theme);
-  }, [theme]);
 
-  // Preload Ishihara plates and SVG backdrop on mount with instant GPU decoding
+    if (accentHue === null) {
+      root.style.removeProperty('--theme-primary');
+      localStorage.removeItem('ophtha_accent_hue');
+    } else {
+      // Keep white text readable across yellow/green/cyan hues while keeping hue vibrant
+      const needsDarkerL = accentHue >= 42 && accentHue <= 195;
+      const lightness = theme === 'light' ? (needsDarkerL ? 36 : 44) : (needsDarkerL ? 42 : 55);
+      root.style.setProperty('--theme-primary', `hsl(${accentHue}, 88%, ${lightness}%)`);
+      localStorage.setItem('ophtha_accent_hue', String(accentHue));
+    }
+  }, [theme, accentHue]);
+
+  // Sliding-window preload for nearby Ishihara plates only while testing
   useEffect(() => {
-    const svgImg = new Image();
-    svgImg.src = './assets/aistudio/Ishihara_1_a207bf18.svg';
-    if ('decode' in svgImg) {
-      svgImg.decode().catch(() => {});
-    }
-
-    for (let i = 1; i <= 16; i++) {
+    if (currentStage !== 'TEST_ISHIHARA') return;
+    const indicesToPreload = [colorTestIndex, colorTestIndex + 1, colorTestIndex - 1].filter(
+      (idx) => idx >= 0 && idx <= 15
+    );
+    indicesToPreload.forEach((idx) => {
       const img = new Image();
-      img.src = `./ishihara/plate${i}.webp`;
-      if ('decode' in img) {
-        img.decode().catch(() => {});
+      const markReady = () => {
+        setLoadedPlates((prev) => (prev[idx] ? prev : { ...prev, [idx]: true }));
+      };
+      img.onload = markReady;
+      img.src = `./ishihara/plate${idx + 1}.webp`;
+      if (img.complete && img.naturalWidth > 0) {
+        markReady();
       }
-    }
-  }, []);
+    });
+  }, [currentStage, colorTestIndex]);
 
   // Auto-save session when results are reached
   useEffect(() => {
@@ -528,8 +566,13 @@ export default function App() {
   const saveCurrentSession = () => {
     if (Object.keys(session).length === 0) return;
     
+    const uniqueId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
     const entry: HistoryEntry = {
-      id: Math.random().toString(36).substring(7),
+      id: uniqueId,
       timestamp: Date.now(),
       session: { ...session },
       patientName: patientName.trim() || undefined
@@ -891,18 +934,16 @@ export default function App() {
 
   return (
     <div className={`flex flex-col h-dvh font-sans overflow-hidden transition-colors duration-300 pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)] ${theme === 'light' ? 'bg-white text-slate-900' : 'bg-zinc-950 text-white'}`} style={{ backgroundColor: 'var(--theme-bg)', color: 'var(--theme-text)' }}>
-      {/* Persistent cache pre-renderer for instant SVG backdrop display */}
-      <div className="absolute w-0 h-0 overflow-hidden opacity-0 pointer-events-none -z-50" aria-hidden="true">
-        <img 
-          src="./assets/aistudio/Ishihara_1_a207bf18.svg" 
-          alt="" 
-          loading="eager" 
-          decoding="sync" 
-        />
-      </div>
-
       {/* Main Content */}
-      <main className="flex-1 min-h-0 relative overflow-y-auto" style={{ backgroundColor: 'var(--theme-bg)' }} id="chart-container">
+      <main
+        className={`flex-1 min-h-0 relative ${
+          activeTab === 'shapes' || activeTab === 'setup' || activeTab === 'amsler'
+            ? 'overflow-hidden'
+            : 'overflow-x-hidden overflow-y-auto'
+        }`}
+        style={{ backgroundColor: 'var(--theme-bg)' }}
+        id="chart-container"
+      >
         {/* Color Tests (Standalone or Exam) */}
         <AnimatePresence>
           {currentStage === 'TEST_COLORS' && (
@@ -1101,12 +1142,7 @@ export default function App() {
                     className="absolute right-0 inset-y-0 w-16 z-30 cursor-pointer active:bg-theme-primary/5 transition-colors"
                   />
 
-                  {/* Preload images */}
-                  <div className="absolute w-0 h-0 opacity-0 overflow-hidden pointer-events-none">
-                    {Array.from({ length: 16 }).map((_, i) => (
-                      <img key={`preload-plate-${i}`} src={`./ishihara/plate${i + 1}.webp`} alt={`Preload ${i + 1}`} />
-                    ))}
-                  </div>
+                  {/* Active + adjacent plates preload via sliding-window effect */}
                   
                   {/* The whole circle moves together when dragging */}
                   <motion.div 
@@ -1210,10 +1246,25 @@ export default function App() {
                         : 'border-theme-border'
                     }`}
                   >
-                     <img 
+                    {!loadedPlates[colorTestIndex] && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-zinc-100 animate-pulse pointer-events-none">
+                        <span className="text-[11px] font-black uppercase tracking-widest text-zinc-400">
+                          Plate {colorTestIndex + 1}
+                        </span>
+                      </div>
+                    )}
+                    <img 
                       src={`./ishihara/plate${colorTestIndex + 1}.webp`}
                       alt={`Ishihara Plate ${colorTestIndex + 1}`}
-                      className="w-full h-full object-contain pointer-events-none select-none"
+                      onLoad={() =>
+                        setLoadedPlates((prev) =>
+                          prev[colorTestIndex] ? prev : { ...prev, [colorTestIndex]: true }
+                        )
+                      }
+                      decoding="async"
+                      className={`w-full h-full object-contain pointer-events-none select-none transition-opacity duration-150 ${
+                        loadedPlates[colorTestIndex] ? 'opacity-100' : 'opacity-0'
+                      }`}
                       referrerPolicy="no-referrer"
                     />
                   </motion.div>
@@ -1241,44 +1292,42 @@ export default function App() {
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 1.05 }}
-                  className="flex flex-col items-center justify-center text-center max-w-sm mx-auto w-full min-h-full py-2 gap-2"
+                  className="flex flex-col items-center justify-between text-center max-w-md mx-auto w-full h-full py-1.5 px-1 gap-2"
                 >
-                  {/* Logo and Title grouped tightly together */}
-                  <div className="flex flex-col items-center gap-0">
-                    <AnimatedLogo />
-
-                    <div className="space-y-0.5 -mt-1">
-                      <h2 className="text-2xl sm:text-3xl font-black tracking-tighter uppercase leading-tight text-theme-text text-balance">
-                        ETDRS CHART <br/><span className="text-theme-primary">CALCULATOR</span>
-                      </h2>
+                  {/* Compact Header: Logo, Title & History Button */}
+                  <div className="flex items-center justify-between gap-2 w-full shrink-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <AnimatedLogo />
+                      <div className="text-left min-w-0">
+                        <h2 className="text-lg sm:text-xl font-black tracking-tighter uppercase leading-tight text-theme-text">
+                          ETDRS CHART <span className="text-theme-primary block sm:inline">CALCULATOR</span>
+                        </h2>
+                      </div>
                     </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('history')}
+                      className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-theme-surface border border-theme-border text-theme-text hover:border-theme-primary/50 text-[11px] font-black uppercase tracking-wider shadow-sm transition-all active:scale-95"
+                      title="View saved VA history"
+                    >
+                      <HistoryIcon size={15} className="text-theme-primary shrink-0" />
+                      <span>History</span>
+                      {history.length > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-theme-primary/15 text-theme-primary text-[9px] font-mono leading-none">
+                          {history.length}
+                        </span>
+                      )}
+                    </button>
                   </div>
 
-                  <div className="flex flex-col w-full gap-2.5 my-1">
-                    {/* Chart Optotype Switcher (Letters / Numbers) */}
-                    <div className="grid grid-cols-2 gap-1 bg-theme-surface p-1 rounded-xl border border-theme-border shadow-inner">
-                      <button
-                        type="button"
-                        onClick={() => handleChartTypeChange('letters')}
-                        className={`py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                          chartType === 'letters'
-                            ? 'bg-theme-primary text-white shadow-md'
-                            : 'text-theme-dim hover:text-theme-text'
-                        }`}
-                      >
-                        Letters (ABC)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleChartTypeChange('numbers')}
-                        className={`py-2 px-3 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${
-                          chartType === 'numbers'
-                            ? 'bg-theme-primary text-white shadow-md'
-                            : 'text-theme-dim hover:text-theme-text'
-                        }`}
-                      >
-                        Numbers (123)
-                      </button>
+                  {/* Optotype Switch & Optional Patient Name */}
+                  <div className="flex flex-col w-full gap-2 shrink-0">
+                    <div className="flex items-center justify-center">
+                      <ChartTypeSwitch
+                        value={chartType}
+                        onChange={handleChartTypeChange}
+                      />
                     </div>
 
                     <input 
@@ -1286,50 +1335,53 @@ export default function App() {
                       placeholder="Patient Name (Optional)" 
                       value={patientName}
                       onChange={(e) => setPatientName(e.target.value)}
-                      className="w-full bg-theme-surface border border-theme-border rounded-xl px-4 py-2.5 text-theme-text text-sm font-bold text-center placeholder:text-theme-dim/50 focus:outline-none focus:border-theme-primary transition-all shadow-inner"
+                      className="w-full bg-theme-surface border border-theme-border rounded-xl px-4 py-2 text-theme-text text-xs sm:text-sm font-bold text-center placeholder:text-theme-dim/50 focus:outline-none focus:border-theme-primary transition-all shadow-inner"
                     />
+                  </div>
 
-                    <div className="grid grid-cols-2 gap-2.5 w-full">
-                      <button 
-                        onClick={() => {
-                          setSession({});
-                          setHasCorrection(null);
-                          setRows(getInitialRows(chartType));
-                          setTestDistance(4);
-                          setStartingEye('OD');
-                          setCurrentEye('OD');
-                          setCurrentStage('TEST_SC');
-                        }}
-                        className="group relative bg-theme-primary text-white font-black h-40 sm:h-44 px-3 rounded-2xl shadow-xl transition-all active:scale-95 flex flex-col items-center justify-center gap-1 overflow-hidden"
-                      >
-                        <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-                        <span className="relative z-10 text-[11px] sm:text-xs font-bold uppercase tracking-widest opacity-85">START WITH</span>
-                        <span className="relative z-10 flex items-center gap-1 text-3xl sm:text-4xl font-black tracking-tight">OD <ChevronRight size={24} className="group-hover:translate-x-0.5 transition-transform shrink-0" /></span>
-                      </button>
+                  {/* Maximized OD / OS Start Buttons (2x height, fills remaining vertical space) */}
+                  <div className="grid grid-cols-2 gap-2.5 w-full flex-1 min-h-[210px] sm:min-h-[240px]">
+                    <button 
+                      onClick={() => {
+                        setSession({});
+                        setHasCorrection(null);
+                        setRows(getInitialRows(chartType));
+                        setTestDistance(4);
+                        setStartingEye('OD');
+                        setCurrentEye('OD');
+                        setCurrentStage('TEST_SC');
+                      }}
+                      className="group relative bg-theme-primary text-white font-black h-full min-h-[210px] sm:min-h-[240px] px-3 rounded-3xl shadow-xl transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 overflow-hidden"
+                    >
+                      <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                      <span className="relative z-10 text-xs sm:text-sm font-bold uppercase tracking-widest opacity-85">START WITH</span>
+                      <span className="relative z-10 flex items-center gap-1 text-4xl sm:text-5xl font-black tracking-tight">OD <ChevronRight size={28} className="group-hover:translate-x-0.5 transition-transform shrink-0" /></span>
+                    </button>
 
-                      <button 
-                        onClick={() => {
-                          setSession({});
-                          setHasCorrection(null);
-                          setRows(getInitialRows(chartType));
-                          setTestDistance(4);
-                          setStartingEye('OS');
-                          setCurrentEye('OS');
-                          setCurrentStage('TEST_SC');
-                        }}
-                        className="group relative bg-theme-surface border-2 border-theme-primary/20 text-theme-primary font-black h-40 sm:h-44 px-3 rounded-2xl shadow-lg transition-all active:scale-95 flex flex-col items-center justify-center gap-1 overflow-hidden"
-                      >
-                        <div className="absolute inset-0 bg-theme-primary/5 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-                        <span className="relative z-10 text-[11px] sm:text-xs font-bold uppercase tracking-widest opacity-80">START WITH</span>
-                        <span className="relative z-10 flex items-center gap-1 text-3xl sm:text-4xl font-black tracking-tight">OS <ChevronRight size={24} className="group-hover:translate-x-0.5 transition-transform shrink-0" /></span>
-                      </button>
-                    </div>
+                    <button 
+                      onClick={() => {
+                        setSession({});
+                        setHasCorrection(null);
+                        setRows(getInitialRows(chartType));
+                        setTestDistance(4);
+                        setStartingEye('OS');
+                        setCurrentEye('OS');
+                        setCurrentStage('TEST_SC');
+                      }}
+                      className="group relative bg-theme-surface border-2 border-theme-primary/25 text-theme-primary font-black h-full min-h-[210px] sm:min-h-[240px] px-3 rounded-3xl shadow-lg transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 overflow-hidden"
+                    >
+                      <div className="absolute inset-0 bg-theme-primary/5 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                      <span className="relative z-10 text-xs sm:text-sm font-bold uppercase tracking-widest opacity-80">START WITH</span>
+                      <span className="relative z-10 flex items-center gap-1 text-4xl sm:text-5xl font-black tracking-tight">OS <ChevronRight size={28} className="group-hover:translate-x-0.5 transition-transform shrink-0" /></span>
+                    </button>
                   </div>
                   
-                    <div className="flex flex-row items-stretch gap-2 w-full pt-1">
+                  {/* Bottom Utility Row & Note */}
+                  <div className="flex flex-col w-full gap-1.5 shrink-0">
+                    <div className="flex flex-row items-stretch gap-2 w-full">
                       <button 
                         onClick={() => setShowConversionModal(true)}
-                        className="flex-1 bg-theme-surface border border-theme-border text-theme-text font-black py-3 px-2.5 sm:px-3 rounded-2xl shadow-sm transition-all active:scale-95 text-[11px] sm:text-xs uppercase tracking-wide hover:border-theme-primary/50 flex items-center justify-center gap-1.5 leading-tight"
+                        className="flex-1 bg-theme-surface border border-theme-border text-theme-text font-black py-2.5 px-2.5 sm:px-3 rounded-2xl shadow-sm transition-all active:scale-95 text-[11px] sm:text-xs uppercase tracking-wide hover:border-theme-primary/50 flex items-center justify-center gap-1.5 leading-tight"
                       >
                         <ClipboardList size={15} className="text-theme-primary shrink-0" /> <span>ETDRS Conversion Table</span>
                       </button>
@@ -1343,27 +1395,22 @@ export default function App() {
                           setCurrentStage('TEST_SC');
                           setTestDistance(4);
                         }}
-                        className="shrink-0 px-3 sm:px-4 py-3 rounded-2xl border border-theme-border text-theme-dim text-[11px] sm:text-xs font-black uppercase tracking-wide hover:text-theme-text transition-all active:scale-95 flex items-center justify-center whitespace-nowrap"
+                        className="shrink-0 px-3 sm:px-4 py-2.5 rounded-2xl border border-theme-border text-theme-dim text-[11px] sm:text-xs font-black uppercase tracking-wide hover:text-theme-text transition-all active:scale-95 flex items-center justify-center whitespace-nowrap"
                       >
                         Tutorial Mode
                       </button>
                     </div>
 
-                    <div
-                      className={`w-full rounded-2xl border px-3.5 py-2.5 mt-1 flex items-center gap-2.5 text-left shadow-sm ${
-                        theme === 'light'
-                          ? 'bg-amber-50 border-amber-300 text-amber-950'
-                          : 'bg-amber-500/15 border-amber-400/40 text-amber-100'
-                      }`}
-                    >
+                    <div className="w-full rounded-2xl border border-theme-primary/30 bg-theme-primary/10 px-3 py-2 flex items-center gap-2 text-left shadow-sm">
                       <Info
-                        size={16}
-                        className={`shrink-0 ${theme === 'light' ? 'text-amber-600' : 'text-amber-400'}`}
+                        size={15}
+                        className="shrink-0 text-theme-primary"
                       />
-                      <p className="text-xs leading-snug font-semibold">
+                      <p className="text-[11px] leading-snug font-semibold text-theme-text/90">
                         For reference only—it is still best practice to document VA immediately after each step.
                       </p>
                     </div>
+                  </div>
                 </motion.div>
               )}
 
@@ -1490,33 +1537,12 @@ export default function App() {
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {/* Quick Letters / Numbers Toggle */}
-                      <div className="flex items-center bg-theme-surface border border-theme-border rounded-full p-0.5 shadow-sm">
-                        <button
-                          type="button"
-                          onClick={() => handleChartTypeChange('letters')}
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all ${
-                            chartType === 'letters'
-                              ? 'bg-theme-primary text-white shadow-sm'
-                              : 'text-theme-dim hover:text-theme-text'
-                          }`}
-                          title="ETDRS Letters Chart"
-                        >
-                          ABC
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleChartTypeChange('numbers')}
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider transition-all ${
-                            chartType === 'numbers'
-                              ? 'bg-theme-primary text-white shadow-sm'
-                              : 'text-theme-dim hover:text-theme-text'
-                          }`}
-                          title="LVRC Numbers Chart"
-                        >
-                          123
-                        </button>
-                      </div>
+                      {/* Quick iOS Letters / Numbers Toggle */}
+                      <ChartTypeSwitch
+                        value={chartType}
+                        onChange={handleChartTypeChange}
+                        size="sm"
+                      />
 
                       {/* Cancel ETDRS Button */}
                       <button
@@ -2030,7 +2056,16 @@ export default function App() {
             </div>
           </motion.div>
         ) : activeTab === 'shapes' ? (
-          <ShapesAnnouncer />
+          <Suspense
+            fallback={
+              <div className="h-full max-w-xl mx-auto px-2.5 py-2 flex flex-col gap-2">
+                <div className="h-9 rounded-xl bg-theme-surface border border-theme-border animate-pulse" />
+                <div className="flex-1 rounded-[24px] bg-theme-surface/50 border border-theme-border/60 animate-pulse" />
+              </div>
+            }
+          >
+            <ShapesAnnouncer />
+          </Suspense>
         ) : activeTab === 'exam' ? (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -2099,8 +2134,18 @@ export default function App() {
             animate={{ opacity: 1 }}
             className="space-y-6 py-10 px-4"
           >
-            <div className="flex items-center justify-between pb-4 border-b border-theme-border/50">
-              <h2 className="text-4xl font-black tracking-tighter uppercase italic text-theme-primary">HISTORY</h2>
+            <div className="flex items-center justify-between pb-4 border-b border-theme-border/50 gap-3">
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('etdrs')}
+                  className="p-2 rounded-xl bg-theme-surface border border-theme-border text-theme-dim hover:text-theme-text active:scale-95 transition-all"
+                  title="Back to ETDRS"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <h2 className="text-3xl sm:text-4xl font-black tracking-tighter uppercase italic text-theme-primary">HISTORY</h2>
+              </div>
               <button 
                 onClick={() => {
                    if (confirm("Clear all history?")) setHistory([]);
@@ -2118,8 +2163,8 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-4">
-                {history.map((entry) => (
-                  <div key={entry.id} className="bg-theme-surface border border-theme-border rounded-[32px] overflow-hidden shadow-xl group">
+                {history.map((entry, idx) => (
+                  <div key={`${entry.id}-${idx}`} className="bg-theme-surface border border-theme-border rounded-[32px] overflow-hidden shadow-xl group">
                     <div className="px-6 py-3 bg-theme-bg/5 flex justify-between items-center border-b border-theme-border gap-2">
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <span className="text-[10px] font-black text-theme-dim uppercase tracking-[0.15em] font-mono shrink-0">
@@ -2170,77 +2215,76 @@ export default function App() {
           </motion.div>
         ) : activeTab === 'setup' ? (
           <motion.div 
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            className="space-y-8 py-10 px-6 max-w-sm mx-auto w-full"
+            className="h-full flex flex-col justify-between py-3 px-4 max-w-sm mx-auto w-full gap-2.5 overflow-hidden"
           >
-            <div className="space-y-2 text-center">
-              <h2 className="text-4xl font-black tracking-tighter uppercase italic text-theme-primary">SETUP</h2>
-              <p className="text-theme-dim text-sm font-medium tracking-widest uppercase italic">Preferences & Tools</p>
+            <div className="space-y-0.5 text-center shrink-0">
+              <h2 className="text-2xl font-black tracking-tighter uppercase italic text-theme-primary leading-none">SETUP</h2>
+              <p className="text-theme-dim text-[10px] font-medium tracking-widest uppercase italic">Preferences & Tools</p>
             </div>
 
-            <div className="space-y-6">
-              <div className="bg-theme-surface p-6 rounded-[32px] border border-theme-border shadow-xl space-y-4">
-                <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2.5 flex-1 min-h-0">
+              <div className="bg-theme-surface p-4 rounded-[24px] border border-theme-border shadow-xl space-y-3 shrink-0">
+                <div className="flex items-center justify-between gap-2">
                   <div className="flex flex-col">
-                    <span className="text-theme-text font-black uppercase text-sm italic">Interface Theme</span>
-                    <span className="text-theme-dim text-[10px] uppercase font-mono tracking-wider">Visual Preference</span>
+                    <span className="text-theme-text font-black uppercase text-xs sm:text-sm italic leading-tight">Interface Theme</span>
+                    <span className="text-theme-dim text-[9px] uppercase font-mono tracking-wider">
+                      {theme === 'light' ? 'Light Mode' : 'Dark Mode'}
+                    </span>
                   </div>
-                  <div className="flex bg-theme-bg p-1 rounded-2xl border border-theme-border shadow-inner">
-                    <button 
-                      onClick={() => setTheme('light')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all ${theme === 'light' ? 'bg-white text-orange-500 shadow-md font-black border border-orange-100' : 'text-theme-dim hover:text-theme-text'}`}
-                    >
-                      <Sun size={16} className={theme === 'light' ? 'fill-orange-500' : ''} />
-                      <span className="text-[10px] uppercase tracking-tighter">Light</span>
-                    </button>
-                    <button 
-                      onClick={() => setTheme('dark')}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all ${theme === 'dark' ? 'bg-zinc-800 text-blue-400 shadow-md font-black' : 'text-theme-dim hover:text-theme-text'}`}
-                    >
-                      <Moon size={16} className={theme === 'dark' ? 'fill-blue-400' : ''} />
-                      <span className="text-[10px] uppercase tracking-tighter">Dark</span>
-                    </button>
+                  <ThemeToggleSwitch theme={theme} onToggle={setTheme} />
+                </div>
+
+                {/* Accent Color Hue Slider */}
+                <div className="pt-3 border-t border-theme-border/60 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col">
+                      <span className="text-theme-text font-black uppercase text-xs sm:text-sm italic leading-tight">Accent Color</span>
+                      <span className="text-theme-dim text-[9px] uppercase font-mono tracking-wider">
+                        {accentHue === null ? 'Default Cyan' : 'Custom Color'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {accentHue !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setAccentHue(null)}
+                          className="px-2 py-0.5 rounded-lg bg-theme-bg border border-theme-border text-[9px] font-black uppercase tracking-wider text-theme-dim hover:text-theme-text active:scale-95 transition-all"
+                        >
+                          Reset
+                        </button>
+                      )}
+                      <span
+                        className="w-5 h-5 rounded-full border-2 border-white/80 shadow-md shrink-0 bg-theme-primary"
+                        aria-hidden="true"
+                      />
+                    </div>
                   </div>
+
+                  <input
+                    type="range"
+                    min={0}
+                    max={360}
+                    value={accentHue ?? 191}
+                    onChange={(e) => setAccentHue(Number(e.target.value))}
+                    aria-label="Accent color hue slider"
+                    className="w-full accent-hue-slider cursor-pointer"
+                  />
                 </div>
               </div>
 
-              <div className="bg-theme-surface p-6 rounded-[32px] border border-theme-border shadow-xl space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex flex-col">
-                    <span className="text-theme-text font-black uppercase text-sm italic">ETDRS Chart</span>
-                    <span className="text-theme-dim text-[10px] uppercase font-mono tracking-wider">Optotype Style</span>
-                  </div>
-                  <div className="flex bg-theme-bg p-1 rounded-2xl border border-theme-border shadow-inner">
-                    <button 
-                      onClick={() => handleChartTypeChange('letters')}
-                      className={`px-3.5 py-2 rounded-xl transition-all text-[10px] uppercase tracking-tighter ${chartType === 'letters' ? 'bg-theme-primary text-white shadow-md font-black' : 'text-theme-dim hover:text-theme-text font-bold'}`}
-                    >
-                      Letters
-                    </button>
-                    <button 
-                      onClick={() => handleChartTypeChange('numbers')}
-                      className={`px-3.5 py-2 rounded-xl transition-all text-[10px] uppercase tracking-tighter ${chartType === 'numbers' ? 'bg-theme-primary text-white shadow-md font-black' : 'text-theme-dim hover:text-theme-text font-bold'}`}
-                    >
-                      Numbers
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-               <div className="bg-theme-surface p-6 rounded-[32px] border border-theme-border shadow-xl flex items-center justify-between group cursor-pointer active:scale-95 transition-all">
-                  <div className="flex flex-col">
-                    <span className="text-theme-text font-black uppercase text-sm italic">Clear All History</span>
-                    <span className="text-theme-dim text-[10px] uppercase font-mono tracking-wider">Permanently delete logs</span>
-                  </div>
-                  <button onClick={() => confirm("Clear history?") && setHistory([])} className="text-theme-dim group-hover:text-red-500 transition-colors">
-                    <Trash2 size={24} />
-                  </button>
-               </div>
+              <Suspense
+                fallback={
+                  <div className="bg-theme-surface p-4 rounded-[24px] border border-theme-border shadow-xl flex-1 min-h-[160px] animate-pulse" />
+                }
+              >
+                <SetupFeedbackSection />
+              </Suspense>
             </div>
 
-            <div className="text-center pt-10">
-              <p className="text-[9px] text-theme-dim font-black uppercase tracking-[0.4em] opacity-30">MADE BY GIO F.</p>
+            <div className="text-center pt-0.5 shrink-0">
+              <p className="text-[9px] text-theme-dim font-black uppercase tracking-[0.35em] opacity-30">MADE BY GIO FERNANDEZ</p>
             </div>
           </motion.div>
         ) : (
@@ -2372,12 +2416,6 @@ export default function App() {
           label="Shapes" 
         />
         <TabItem 
-          active={activeTab === 'history'} 
-          onClick={() => setActiveTab('history')} 
-          icon={<HistoryIcon size={20} />} 
-          label="History" 
-        />
-        <TabItem 
           active={activeTab === 'setup'} 
           onClick={() => setActiveTab('setup')} 
           icon={<Settings size={20} />} 
@@ -2457,6 +2495,8 @@ export default function App() {
                         <img 
                           src={`./ishihara/plate${curDetail.plateNum}.webp`} 
                           alt={`Plate ${curDetail.plateNum}`} 
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover" 
                         />
                       </div>
@@ -2558,6 +2598,8 @@ export default function App() {
                     <img 
                       src="./assets/aistudio/image_c95e2aa5.png" 
                       alt="Metamorphopsia Grid" 
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-contain"
                     />
                   </div>
@@ -2572,6 +2614,8 @@ export default function App() {
                     <img 
                       src="./assets/aistudio/image_a1df31e3.png" 
                       alt="Scotoma Grid" 
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-contain"
                     />
                   </div>

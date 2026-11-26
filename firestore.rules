@@ -1,0 +1,83 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default Deny Everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedCreator() {
+      return isSignedIn()
+        && request.auth.token.email == 'gioalfer@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedCreator()
+        || (isSignedIn() && request.auth.token.email_verified == true && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    // Feedback Validation Blueprint (called on both create and update)
+    function isValidFeedback(data) {
+      return data.keys().hasAll(['category', 'message', 'status', 'createdAt'])
+        && data.keys().hasOnly(['category', 'message', 'senderName', 'status', 'createdAt'])
+        && data.category is string
+        && data.category in ['suggestion', 'bug', 'praise', 'other']
+        && data.message is string
+        && data.message.size() >= 3
+        && data.message.size() <= 1000
+        && (!('senderName' in data) || (data.senderName is string && data.senderName.size() <= 80))
+        && data.status is string
+        && data.status in ['new', 'reviewed', 'done']
+        && data.createdAt is timestamp;
+    }
+
+    // Admin registry is strictly server/console managed
+    match /admins/{adminId} {
+      allow read, write: if false;
+    }
+
+    // Feedback & Suggestions collection
+    match /feedback/{feedbackId} {
+      // Only the verified creator/admin can read or list feedback
+      allow get: if isValidId(feedbackId) && isAdmin();
+      allow list: if isVerifiedCreator();
+
+      // Any visitor may submit a strictly validated new feedback document
+      allow create: if isValidId(feedbackId)
+        && isValidFeedback(incoming())
+        && incoming().status == 'new'
+        && incoming().createdAt == request.time;
+
+      // Only verified creator/admin may triage status; original content & timestamp are immutable
+      allow update: if isValidId(feedbackId)
+        && isValidFeedback(incoming())
+        && isAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+        && incoming().createdAt == existing().createdAt
+        && incoming().category == existing().category
+        && incoming().message == existing().message;
+
+      // Only verified creator/admin may delete feedback entries
+      allow delete: if isValidId(feedbackId) && isAdmin();
+    }
+  }
+}

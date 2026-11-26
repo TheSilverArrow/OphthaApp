@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "Feedback": {
+      "title": "Feedback",
+      "description": "User-submitted feedback, bug report, or feature suggestion from the Setup page.",
+      "type": "object",
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": ["suggestion", "bug", "praise", "other"],
+          "description": "Type of feedback submitted by the user."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 1000,
+          "description": "Main feedback or suggestion text."
+        },
+        "senderName": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Optional name or clinic role provided by the sender."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["new", "reviewed", "done"],
+          "description": "Creator triage status for the feedback item."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp recorded at submission time."
+        }
+      },
+      "required": ["category", "message", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/feedback/{feedbackId}": {
+      "schema": {
+        "$ref": "#/entities/Feedback"
+      },
+      "description": "Stores user feedback and suggestions. Anyone may submit a validated new entry; only the verified creator may read, triage, or delete entries."
+    }
+  }
+}
