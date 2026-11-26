@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useMemo, useEffect, useRef, Suspense, lazy } from 'react';
 import { Eye, TestMode, ChartType, Row, SessionData, NonLetterVA, Stage, IshiharaResult } from './types';
 import { getInitialRows, applyChartTypeToRows, logMARToSnellen, logMARToMetric } from './constants';
 import { motion, AnimatePresence } from 'motion/react';
@@ -459,7 +459,7 @@ export default function App() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [ishiharaEye, setIshiharaEye] = useState<'OD' | 'OS' | 'OU'>('OU');
   const [interpretationTarget, setInterpretationTarget] = useState<IshiharaResult | null>(null);
-  const [loadedPlates, setLoadedPlates] = useState<Record<number, boolean>>({});
+  const plateBitmapCacheRef = useRef<Record<number, HTMLImageElement>>({});
 
   const handleChartTypeChange = (type: ChartType) => {
     setChartType(type);
@@ -533,21 +533,87 @@ export default function App() {
     }
   }, [theme, accentHue]);
 
-  // Sliding-window preload for nearby Ishihara plates only while testing
+  // Ordered sequential warmup after initial paint + GPU decode (zero startup contention)
+  useEffect(() => {
+    let cancelled = false;
+    const ensurePlateDecoded = (idx: number) => {
+      if (plateBitmapCacheRef.current[idx]) {
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        const img = new Image();
+        plateBitmapCacheRef.current[idx] = img;
+        img.onload = () => {
+          if ('decode' in img) {
+            img.decode().catch(() => {}).finally(resolve);
+          } else {
+            resolve();
+          }
+        };
+        img.onerror = () => resolve();
+        img.src = `./ishihara/plate${idx + 1}.webp`;
+      });
+    };
+
+    const warmQueue = async (indices: number[]) => {
+      for (const idx of indices) {
+        if (cancelled) return;
+        await ensurePlateDecoded(idx);
+      }
+    };
+
+    const conn = (navigator as unknown as {
+      connection?: { saveData?: boolean; effectiveType?: string };
+    }).connection;
+    const isConstrained =
+      Boolean(conn?.saveData) ||
+      conn?.effectiveType === '2g' ||
+      conn?.effectiveType === 'slow-2g';
+
+    const timer = window.setTimeout(() => {
+      const platesToWarm = isConstrained
+        ? [0, 1]
+        : Array.from({ length: 16 }, (_, i) => i);
+      warmQueue(platesToWarm);
+    }, 650);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  // Pre-warm first 3 plates when entering Colors tab or Color Choice
+  useEffect(() => {
+    if (activeTab !== 'exam' && currentStage !== 'COLOR_CHOICE') return;
+    [0, 1, 2].forEach((idx) => {
+      if (plateBitmapCacheRef.current[idx]) return;
+      const img = new Image();
+      plateBitmapCacheRef.current[idx] = img;
+      img.src = `./ishihara/plate${idx + 1}.webp`;
+      if ('decode' in img) {
+        img.decode().catch(() => {});
+      }
+    });
+  }, [activeTab, currentStage]);
+
+  // Fast 3-plate lookahead + GPU decode while testing Ishihara
   useEffect(() => {
     if (currentStage !== 'TEST_ISHIHARA') return;
-    const indicesToPreload = [colorTestIndex, colorTestIndex + 1, colorTestIndex - 1].filter(
-      (idx) => idx >= 0 && idx <= 15
-    );
+    const indicesToPreload = [
+      colorTestIndex,
+      colorTestIndex + 1,
+      colorTestIndex + 2,
+      colorTestIndex + 3,
+      colorTestIndex - 1,
+    ].filter((idx) => idx >= 0 && idx <= 15);
     indicesToPreload.forEach((idx) => {
+      if (plateBitmapCacheRef.current[idx]) return;
       const img = new Image();
-      const markReady = () => {
-        setLoadedPlates((prev) => (prev[idx] ? prev : { ...prev, [idx]: true }));
-      };
-      img.onload = markReady;
+      plateBitmapCacheRef.current[idx] = img;
       img.src = `./ishihara/plate${idx + 1}.webp`;
-      if (img.complete && img.naturalWidth > 0) {
-        markReady();
+      if ('decode' in img) {
+        img.decode().catch(() => {});
       }
     });
   }, [currentStage, colorTestIndex]);
@@ -1246,25 +1312,17 @@ export default function App() {
                         : 'border-theme-border'
                     }`}
                   >
-                    {!loadedPlates[colorTestIndex] && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-zinc-100 animate-pulse pointer-events-none">
-                        <span className="text-[11px] font-black uppercase tracking-widest text-zinc-400">
-                          Plate {colorTestIndex + 1}
-                        </span>
-                      </div>
-                    )}
+                    <div className="absolute inset-0 flex items-center justify-center bg-zinc-100 pointer-events-none">
+                      <span className="text-[11px] font-black uppercase tracking-widest text-zinc-400">
+                        Plate {colorTestIndex + 1}
+                      </span>
+                    </div>
                     <img 
                       src={`./ishihara/plate${colorTestIndex + 1}.webp`}
                       alt={`Ishihara Plate ${colorTestIndex + 1}`}
-                      onLoad={() =>
-                        setLoadedPlates((prev) =>
-                          prev[colorTestIndex] ? prev : { ...prev, [colorTestIndex]: true }
-                        )
-                      }
-                      decoding="async"
-                      className={`w-full h-full object-contain pointer-events-none select-none transition-opacity duration-150 ${
-                        loadedPlates[colorTestIndex] ? 'opacity-100' : 'opacity-0'
-                      }`}
+                      loading="eager"
+                      decoding="sync"
+                      className="relative z-10 w-full h-full object-contain pointer-events-none select-none"
                       referrerPolicy="no-referrer"
                     />
                   </motion.div>
