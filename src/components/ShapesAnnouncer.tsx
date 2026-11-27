@@ -26,20 +26,121 @@ const PATTI_PICS_SHAPES: ShapeItem[] = [
 const ALLOWED_VOICES: ReadonlyArray<{
   id: 'ana' | 'brian' | 'sam';
   label: 'Ana' | 'Brian' | 'Sam';
+  preferredRegex: RegExp;
+  avoidRegex: RegExp;
   fallbackPitch: number;
   fallbackRate: number;
 }> = [
-  { id: 'ana', label: 'Ana', fallbackPitch: 1.12, fallbackRate: 0.9 },
-  { id: 'brian', label: 'Brian', fallbackPitch: 0.94, fallbackRate: 0.88 },
-  { id: 'sam', label: 'Sam', fallbackPitch: 0.82, fallbackRate: 0.86 },
+  {
+    id: 'ana',
+    label: 'Ana',
+    preferredRegex: /\b(ana|aria|jenny|zira|samantha|victoria|karen|moira|tessa|nicky|susan|hazel|female|sfg|tpf|iom)\b/i,
+    avoidRegex: /\b(male|david|mark|daniel|alex|fred|brian|guy|rishi|tpd|rjs|gbb)\b/i,
+    fallbackPitch: 1.32,
+    fallbackRate: 1.0,
+  },
+  {
+    id: 'brian',
+    label: 'Brian',
+    preferredRegex: /\b(brian|guy|david|daniel|alex|aaron|arthur|oliver|george|male|tpd|rjs|gbb)\b/i,
+    avoidRegex: /\b(female|ana|aria|jenny|zira|samantha|sfg|tpf|iom)\b/i,
+    fallbackPitch: 0.95,
+    fallbackRate: 0.9,
+  },
+  {
+    id: 'sam',
+    label: 'Sam',
+    preferredRegex: /\b(sam|mark|fred|rishi|christopher|ryan|eric|steffan|gordon|lee|iol|gbd|en-au|en-in)\b/i,
+    avoidRegex: /\b(ana|aria|zira|samantha)\b/i,
+    fallbackPitch: 0.68,
+    fallbackRate: 0.82,
+  },
 ];
 
 const DEFAULT_VOICE_OPTIONS: VoiceOption[] = ALLOWED_VOICES.map((v) => ({
   id: v.id,
   label: v.label,
-  pitch: 1.0,
-  rate: 0.9,
+  pitch: v.fallbackPitch,
+  rate: v.fallbackRate,
 }));
+
+function buildVoiceOptions(allVoices: SpeechSynthesisVoice[]): VoiceOption[] {
+  const englishVoices = allVoices.filter((v) => v.lang.toLowerCase().startsWith('en'));
+  const pool = englishVoices.length > 0 ? englishVoices : allVoices;
+  const usedURIs = new Set<string>();
+
+  const assigned: (SpeechSynthesisVoice | undefined)[] = ALLOWED_VOICES.map((target) => {
+    const exactMsRegex = new RegExp(`\\bmicrosoft\\b.*\\b${target.label}\\b`, 'i');
+    const exactMatches = pool
+      .filter((v) => exactMsRegex.test(v.name) && !usedURIs.has(v.voiceURI))
+      .sort((a, b) => {
+        const score = (v: SpeechSynthesisVoice) => {
+          let s = 0;
+          if (v.lang.toLowerCase().startsWith('en')) s += 10;
+          if (v.lang.toLowerCase() === 'en-us') s += 4;
+          if (/natural|online/i.test(v.name)) s += 2;
+          if (v.localService) s += 1;
+          return s;
+        };
+        return score(b) - score(a);
+      });
+
+    if (exactMatches[0]) {
+      usedURIs.add(exactMatches[0].voiceURI);
+      return exactMatches[0];
+    }
+    return undefined;
+  });
+
+  // Second pass: pick distinct voices from the remaining English pool for any unassigned slots
+  ALLOWED_VOICES.forEach((target, idx) => {
+    if (assigned[idx] || pool.length === 0) return;
+
+    const remaining = pool.filter((v) => !usedURIs.has(v.voiceURI));
+    const candidates = remaining.length > 0 ? remaining : pool;
+
+    const scored = [...candidates].sort((a, b) => {
+      const score = (v: SpeechSynthesisVoice) => {
+        let s = 0;
+        const descriptor = `${v.name} ${v.lang}`;
+        if (target.preferredRegex.test(descriptor)) s += 20;
+        if (target.avoidRegex.test(descriptor)) s -= 15;
+        if (/natural|online|enhanced|premium/i.test(v.name)) s += 4;
+        if (v.lang.toLowerCase().startsWith('en-us')) s += 3;
+        else if (v.lang.toLowerCase().startsWith('en-gb')) s += 2;
+        if (v.localService) s += 1;
+        return s;
+      };
+      return score(b) - score(a);
+    });
+
+    const picked = scored[0];
+    if (picked) {
+      usedURIs.add(picked.voiceURI);
+      assigned[idx] = picked;
+    }
+  });
+
+  // Count how many options share each voiceURI so shared-voice devices still sound distinct
+  const uriCounts = new Map<string, number>();
+  assigned.forEach((v) => {
+    if (v?.voiceURI) {
+      uriCounts.set(v.voiceURI, (uriCounts.get(v.voiceURI) ?? 0) + 1);
+    }
+  });
+
+  return ALLOWED_VOICES.map((target, idx) => {
+    const voice = assigned[idx];
+    const isSharedVoice = !voice || (uriCounts.get(voice.voiceURI) ?? 0) > 1;
+    return {
+      id: target.id,
+      label: target.label,
+      voiceURI: voice?.voiceURI,
+      pitch: isSharedVoice ? target.fallbackPitch : 1.0,
+      rate: isSharedVoice ? target.fallbackRate : 0.92,
+    };
+  });
+}
 
 function ShapeOptotype({ id, className }: { id: ShapeItem['id']; className?: string }) {
   switch (id) {
@@ -92,6 +193,7 @@ export default function ShapesAnnouncer() {
   });
 
   const systemVoicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const clearTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -104,46 +206,7 @@ export default function ShapesAnnouncer() {
       if (!allVoices.length) return;
       systemVoicesRef.current = allVoices;
 
-      const englishFallback =
-        allVoices.find((v) => v.lang.toLowerCase() === 'en-us') ||
-        allVoices.find((v) => v.lang.toLowerCase().startsWith('en'));
-
-      const mapped: VoiceOption[] = ALLOWED_VOICES.map((target) => {
-        const msRegex = new RegExp(`\\bmicrosoft\\b.*\\b${target.label}\\b`, 'i');
-        const candidates = allVoices.filter((v) => msRegex.test(v.name));
-
-        candidates.sort((a, b) => {
-          const score = (v: SpeechSynthesisVoice) => {
-            let s = 0;
-            if (v.lang.toLowerCase().startsWith('en')) s += 10;
-            if (v.lang.toLowerCase() === 'en-us') s += 4;
-            if (/natural|online/i.test(v.name)) s += 2;
-            if (v.localService) s += 1;
-            return s;
-          };
-          return score(b) - score(a);
-        });
-
-        const matched = candidates[0];
-        if (matched) {
-          return {
-            id: target.id,
-            label: target.label,
-            voiceURI: matched.voiceURI,
-            pitch: 1.0,
-            rate: 0.9,
-          };
-        }
-
-        return {
-          id: target.id,
-          label: target.label,
-          voiceURI: englishFallback?.voiceURI,
-          pitch: target.fallbackPitch,
-          rate: target.fallbackRate,
-        };
-      });
-
+      const mapped = buildVoiceOptions(allVoices);
       setVoiceOptions(mapped);
       setSelectedVoiceId((prev) => {
         if (mapped.some((o) => o.id === prev)) return prev;
@@ -154,10 +217,10 @@ export default function ShapesAnnouncer() {
     };
 
     loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
+    window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
 
     return () => {
-      window.speechSynthesis.onvoiceschanged = null;
+      window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
       window.speechSynthesis.cancel();
       if (clearTimerRef.current) {
         window.clearTimeout(clearTimerRef.current);
@@ -174,17 +237,31 @@ export default function ShapesAnnouncer() {
 
       try {
         window.speechSynthesis.cancel();
-        const chosen =
-          voiceOptions.find(o => o.id === (optionId ?? selectedVoiceId)) || voiceOptions[0];
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+
+        const freshVoices = window.speechSynthesis.getVoices();
+        if (freshVoices.length > 0 && systemVoicesRef.current.length === 0) {
+          systemVoicesRef.current = freshVoices;
+        }
+        const activeVoices = systemVoicesRef.current.length > 0 ? systemVoicesRef.current : freshVoices;
+        const resolvedOptions = activeVoices.length > 0 && voiceOptions.every((o) => !o.voiceURI)
+          ? buildVoiceOptions(activeVoices)
+          : voiceOptions;
+
+        const targetId = optionId ?? selectedVoiceId;
+        const chosen = resolvedOptions.find((o) => o.id === targetId) || resolvedOptions[0];
 
         const utterance = new SpeechSynthesisUtterance(text);
+        utteranceRef.current = utterance;
         utterance.lang = 'en-US';
         utterance.volume = 1.0;
-        utterance.rate = chosen?.rate ?? 0.88;
+        utterance.rate = chosen?.rate ?? 0.92;
         utterance.pitch = chosen?.pitch ?? 1.0;
 
         if (chosen?.voiceURI) {
-          const match = systemVoicesRef.current.find(v => v.voiceURI === chosen.voiceURI);
+          const match = activeVoices.find((v) => v.voiceURI === chosen.voiceURI);
           if (match) {
             utterance.voice = match;
             utterance.lang = match.lang || 'en-US';

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, Suspense, lazy } from 'react';
 import { Eye, TestMode, ChartType, Row, SessionData, NonLetterVA, Stage, IshiharaResult } from './types';
-import { getInitialRows, applyChartTypeToRows, logMARToSnellen, logMARToMetric } from './constants';
+import { getInitialRows, applyChartTypeToRows, logMARToSnellen, ETDRS_CONVERSION_DATA, lettersAndDistanceToSnellen, vaDataToSnellen } from './constants';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Eye as EyeIcon, 
@@ -20,7 +20,8 @@ import {
   X,
   AlertTriangle,
   Grid3x3,
-  Shapes
+  Shapes,
+  Pencil
 } from 'lucide-react';
 import ChartTypeSwitch from './components/ChartTypeSwitch';
 import ThemeToggleSwitch from './components/ThemeToggleSwitch';
@@ -141,78 +142,6 @@ const ISHIHARA_PLATE_DETAILS: PlateDetail[] = [
   }
 ];
 
-const ETDRS_CONVERSION_DATA = [
-  { letters: 1, m4: 240, m2: 480, m1: 957, m05: 1910 },
-  { letters: 2, m4: 230, m2: 458, m1: 914, m05: 1824 },
-  { letters: 3, m4: 219, m2: 438, m1: 873, m05: 1742 },
-  { letters: 4, m4: 209, m2: 418, m1: 834, m05: 1664 },
-  { letters: 5, m4: 200, m2: 399, m1: 796, m05: 1589 },
-  { letters: 6, m4: 191, m2: 381, m1: 760, m05: 1517 },
-  { letters: 7, m4: 182, m2: 364, m1: 726, m05: 1449 },
-  { letters: 8, m4: 174, m2: 348, m1: 693, m05: 1384 },
-  { letters: 9, m4: 166, m2: 332, m1: 662, m05: 1321 },
-  { letters: 10, m4: 159, m2: 317, m1: 632, m05: 1262 },
-  { letters: 11, m4: 152, m2: 303, m1: 604, m05: 1205 },
-  { letters: 12, m4: 145, m2: 290, m1: 577, m05: 1151 },
-  { letters: 13, m4: 138, m2: 276, m1: 551, m05: 1099 },
-  { letters: 14, m4: 132, m2: 264, m1: 526, m05: 1050 },
-  { letters: 15, m4: 126, m2: 252, m1: 502, m05: 1002 },
-  { letters: 16, m4: 121, m2: 240, m1: 480, m05: 957 },
-  { letters: 17, m4: 115, m2: 230, m1: 458, m05: 914 },
-  { letters: 18, m4: 110, m2: 219, m1: 438, m05: 873 },
-  { letters: 19, m4: 105, m2: 209, m1: 418, m05: 834 },
-  { letters: 20, m4: 100, m2: 200, m1: 399, m05: 796 },
-  { letters: 21, m4: 96, m2: 191, m1: 381, m05: 760 },
-  { letters: 22, m4: 91, m2: 182, m1: 364, m05: 726 },
-  { letters: 23, m4: 87, m2: 174, m1: 348, m05: 693 },
-  { letters: 24, m4: 83, m2: 166, m1: 332, m05: 662 },
-  { letters: 25, m4: 80, m2: 159, m1: 317, m05: 632 },
-  { letters: 26, m4: 76, m2: 152, m1: 303, m05: 604 },
-  { letters: 27, m4: 73, m2: 145, m1: 289, m05: 577 },
-  { letters: 28, m4: 69, m2: 138, m1: 276, m05: 551 },
-  { letters: 29, m4: 66, m2: 132, m1: 264, m05: 526 },
-  { letters: 30, m4: 63, m2: 126, m1: 252, m05: 502 },
-  { letters: 31, m4: 60, m2: 121, m1: 240, m05: 480 },
-  { letters: 32, m4: 58, m2: 115, m1: 230, m05: 458 },
-  { letters: 33, m4: 55, m2: 110, m1: 219, m05: 438 },
-  { letters: 34, m4: 53, m2: 105, m1: 209, m05: 418 },
-  { letters: 35, m4: 50, m2: 100, m1: 200, m05: 399 },
-  { letters: 36, m4: 48, m2: 96, m1: 191, m05: 381 },
-  { letters: 37, m4: 46, m2: 91, m1: 182, m05: 364 },
-  { letters: 38, m4: 44, m2: 87, m1: 174, m05: 348 },
-  { letters: 39, m4: 42, m2: 83, m1: 166, m05: 332 },
-  { letters: 40, m4: 40, m2: 80, m1: 159, m05: 317 },
-  { letters: 41, m4: 38, m2: 76, m1: 152, m05: 303 },
-  { letters: 42, m4: 37, m2: 73, m1: 145, m05: 289 },
-  { letters: 43, m4: 35, m2: 69, m1: 138, m05: 276 },
-  { letters: 44, m4: 33, m2: 66, m1: 132, m05: 264 },
-  { letters: 45, m4: 32, m2: 63, m1: 126, m05: 252 },
-  { letters: 46, m4: 30, m2: 60, m1: 121, m05: 240 },
-  { letters: 47, m4: 29, m2: 58, m1: 115, m05: 230 },
-  { letters: 48, m4: 28, m2: 55, m1: 110, m05: 219 },
-  { letters: 49, m4: 26, m2: 53, m1: 105, m05: 209 },
-  { letters: 50, m4: 25, m2: 50, m1: 100, m05: 200 },
-  { letters: 51, m4: 24, m2: 48, m1: 96, m05: 191 },
-  { letters: 52, m4: 23, m2: 46, m1: 91, m05: 182 },
-  { letters: 53, m4: 22, m2: 44, m1: 87, m05: 174 },
-  { letters: 54, m4: 21, m2: 42, m1: 83, m05: 166 },
-  { letters: 55, m4: 20, m2: 40, m1: 80, m05: 159 },
-  { letters: 56, m4: 19, m2: 38, m1: 76, m05: 152 },
-  { letters: 57, m4: 18, m2: 36, m1: 73, m05: 145 },
-  { letters: 58, m4: 17, m2: 35, m1: 69, m05: 138 },
-  { letters: 59, m4: 17, m2: 33, m1: 66, m05: 132 },
-  { letters: 60, m4: 16, m2: 32, m1: 63, m05: 126 },
-  { letters: 61, m4: 15, m2: 31, m1: 60, m05: 121 },
-  { letters: 62, m4: 14, m2: 29, m1: 58, m05: 115 },
-  { letters: 63, m4: 14, m2: 28, m1: 55, m05: 110 },
-  { letters: 64, m4: 13, m2: 26, m1: 53, m05: 105 },
-  { letters: 65, m4: 13, m2: 25, m1: 50, m05: 100 },
-  { letters: 66, m4: 12, m2: 24, m1: 48, m05: 96 },
-  { letters: 67, m4: 12, m2: 23, m1: 46, m05: 91 },
-  { letters: 68, m4: 11, m2: 22, m1: 44, m05: 87 },
-  { letters: 69, m4: 11, m2: 21, m1: 42, m05: 83 },
-  { letters: 70, m4: 10, m2: 20, m1: 40, m05: 80 }
-];
 
 const formatIshiharaLine = (label: string, res?: IshiharaResult) => {
   if (!res) return '';
@@ -240,7 +169,7 @@ const generateReportString = (session: SessionData): string => {
     const ccph = data['CCPH'];
 
     // Default to '—' if SC not present, or try to format its value
-    const scVal = sc ? (sc.nonLetter || (sc.logMAR !== undefined ? logMARToSnellen(sc.logMAR) : '—')) : '—';
+    const scVal = vaDataToSnellen(sc);
     const scNL = sc?.nonLetter?.toUpperCase() || '';
     const isNonLetter = !!sc?.nonLetter;
     const isLowVision = scNL.startsWith('CF') || scNL.startsWith('HM') || scNL === 'LP' || scNL === 'NLP';
@@ -253,7 +182,7 @@ const generateReportString = (session: SessionData): string => {
       if (cc.statusLabel === 'NICC') {
         line += ` > NICC`;
       } else {
-        const ccVal = cc.nonLetter || (cc.logMAR !== undefined ? logMARToSnellen(cc.logMAR) : '—');
+        const ccVal = vaDataToSnellen(cc);
         line += ` > cc ${ccVal}`;
       }
     }
@@ -264,7 +193,7 @@ const generateReportString = (session: SessionData): string => {
       if (phData.statusLabel === 'NIPH') {
         line += ` > NIPH`;
       } else {
-        const phVal = phData.nonLetter || (phData.logMAR !== undefined ? logMARToSnellen(phData.logMAR) : '—');
+        const phVal = vaDataToSnellen(phData);
         line += ` > ${phKey.toLowerCase()} ${phVal}`;
       }
     }
@@ -459,7 +388,50 @@ export default function App() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [ishiharaEye, setIshiharaEye] = useState<'OD' | 'OS' | 'OU'>('OU');
   const [interpretationTarget, setInterpretationTarget] = useState<IshiharaResult | null>(null);
+  const [showDisclaimerModal, setShowDisclaimerModal] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('ophtha_hide_disclaimer') !== 'true';
+  });
+  const [dontShowDisclaimerAgain, setDontShowDisclaimerAgain] = useState(false);
+  const [autoQuickVA, setAutoQuickVA] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('ophtha_auto_quick_va') === 'true';
+  });
   const plateBitmapCacheRef = useRef<Record<number, HTMLImageElement>>({});
+
+  const applyAutoQuickVA = (targetRows: Row[], maxLineToCredit: number = targetRows.length - 2): Row[] => {
+    const updated = targetRows.map((r) => ({
+      ...r,
+      letters: r.letters.map((l) => ({ ...l })),
+    }));
+    const limit = Math.min(maxLineToCredit, updated.length - 2);
+    for (let i = limit; i >= 0; i--) {
+      const curCorrect = updated[i].letters.filter((l) => l.correct).length;
+      const nextCorrect = updated[i + 1].letters.filter((l) => l.correct).length;
+      if (curCorrect >= 3 && nextCorrect >= 1) {
+        updated[i].letters = updated[i].letters.map((l) => ({ ...l, correct: true }));
+      }
+    }
+    return updated;
+  };
+
+  const handleToggleAutoQuickVA = () => {
+    setAutoQuickVA((prev) => {
+      const next = !prev;
+      localStorage.setItem('ophtha_auto_quick_va', String(next));
+      if (next) {
+        setRows((curRows) => applyAutoQuickVA(curRows));
+      }
+      return next;
+    });
+  };
+
+  const closeDisclaimerModal = () => {
+    if (dontShowDisclaimerAgain) {
+      localStorage.setItem('ophtha_hide_disclaimer', 'true');
+    }
+    setShowDisclaimerModal(false);
+  };
 
   const handleChartTypeChange = (type: ChartType) => {
     setChartType(type);
@@ -678,9 +650,23 @@ export default function App() {
   }, [rows]);
 
   const toggleLetter = (lineIndex: number, letterIndex: number) => {
-    const newRows = [...rows];
-    newRows[lineIndex].letters[letterIndex].correct = !newRows[lineIndex].letters[letterIndex].correct;
-    setRows(newRows);
+    setRows((prevRows) => {
+      const newRows = prevRows.map((row, idx) =>
+        idx === lineIndex
+          ? {
+              ...row,
+              letters: row.letters.map((letter, lIdx) =>
+                lIdx === letterIndex ? { ...letter, correct: !letter.correct } : letter
+              ),
+            }
+          : row
+      );
+      const turnedOn = newRows[lineIndex].letters[letterIndex].correct;
+      if (autoQuickVA && turnedOn && lineIndex > 0) {
+        return applyAutoQuickVA(newRows, lineIndex - 1);
+      }
+      return newRows;
+    });
   };
 
   // Helper to determine if an eye should skip further testing (CC/PH)
@@ -795,7 +781,11 @@ export default function App() {
       newRows[lineIndex].letters = newRows[lineIndex].letters.map(l => ({ ...l, correct: true }));
     }
 
-    setRows(newRows);
+    if (autoQuickVA && lineIndex > 0 && lineIndex > maxLineWithHighlight) {
+      setRows(applyAutoQuickVA(newRows, lineIndex - 1));
+    } else {
+      setRows(newRows);
+    }
   };
 
   const setNonLetterVA = (va: NonLetterVA) => {
@@ -965,11 +955,31 @@ export default function App() {
       
       if (hasData || isActive) {
         steps.push(step);
-      } else {
-        break;
       }
     }
     return steps;
+  };
+
+  const handleEditReport = () => {
+    const steps = getBacktrackSteps();
+    const targetStep = steps[steps.length - 1] || { eye: startingEye, mode: 'SC' as TestMode };
+    const stepData = session[targetStep.eye]?.[targetStep.mode];
+
+    setCurrentEye(targetStep.eye);
+    setCurrentMode(targetStep.mode);
+    if (stepData?.gridState) {
+      setRows(applyChartTypeToRows(JSON.parse(JSON.stringify(stepData.gridState)), chartType));
+    } else {
+      setRows(getInitialRows(chartType));
+    }
+    setTestDistance(stepData?.testDistance ?? 4);
+    const stage: Stage =
+      targetStep.mode === 'SC'
+        ? 'TEST_SC'
+        : targetStep.mode === 'CC'
+        ? 'TEST_CC'
+        : 'TEST_PH';
+    setCurrentStage(stage);
   };
 
   const restart = () => {
@@ -1003,7 +1013,7 @@ export default function App() {
       {/* Main Content */}
       <main
         className={`flex-1 min-h-0 relative ${
-          activeTab === 'shapes' || activeTab === 'setup' || activeTab === 'amsler'
+          activeTab === 'shapes' || activeTab === 'amsler'
             ? 'overflow-hidden'
             : 'overflow-x-hidden overflow-y-auto'
         }`}
@@ -1613,6 +1623,15 @@ export default function App() {
                     </div>
                   </div>
 
+                  {autoQuickVA && (
+                    <div className="mb-1 px-2.5 py-1 rounded-xl border border-theme-primary/30 bg-theme-primary/10 flex items-center gap-1.5 shrink-0">
+                      <Info size={12} className="text-theme-primary shrink-0" />
+                      <span className="text-[10px] sm:text-[11px] font-bold text-theme-text">
+                        Quick VA is ON
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex gap-1 w-full items-stretch flex-1 min-h-0 my-0.5">
                     {/* Left: Chart */}
                     <div className="flex-1 bg-theme-surface rounded-[20px] sm:rounded-[24px] p-1 sm:p-2 shadow-2xl border border-theme-border flex flex-col justify-between overflow-hidden">
@@ -1749,9 +1768,19 @@ export default function App() {
                           </p>
                         </div>
                       ) : (
-                        <p className="text-theme-dim mt-3 max-w-xs mx-auto text-base sm:text-lg leading-relaxed">
-                          Please place the pinhole occluder over the patient's eye.
-                        </p>
+                        <div className="mt-4 space-y-3">
+                          <div className="bg-theme-primary/10 border-2 border-theme-primary/30 rounded-2xl p-4 text-center space-y-1 shadow-sm">
+                            <span className="text-xs font-black uppercase tracking-wider text-theme-primary block">
+                              Testing Both Eyes • Start with {startingEye}
+                            </span>
+                            <p className="text-xs text-theme-text font-medium leading-relaxed">
+                              Test <span className="font-black text-theme-primary uppercase">{startingEye}</span> first, then <span className="font-bold uppercase">{startingEye === 'OD' ? 'OS' : 'OD'}</span>.
+                            </p>
+                          </div>
+                          <p className="text-theme-dim text-sm sm:text-base leading-relaxed">
+                            Please place the pinhole occluder over <span className="text-theme-primary font-black uppercase">{startingEye}</span>.
+                          </p>
+                        </div>
                       )}
                     </div>
 
@@ -1759,7 +1788,7 @@ export default function App() {
                       onClick={() => handleNext()}
                       className="w-full max-w-xs bg-theme-primary text-white font-black py-5 sm:py-6 rounded-3xl shadow-xl transition-all active:scale-95 text-base sm:text-lg uppercase tracking-widest mt-2"
                     >
-                      Start Pinhole {singleNotice ? `(${singleNotice.testedEye})` : ''}
+                      Start Pinhole ({singleNotice ? singleNotice.testedEye : startingEye})
                     </button>
                   </motion.div>
                 );
@@ -1950,16 +1979,27 @@ export default function App() {
                         </p>
                       )}
                     </div>
-                    <div className="flex gap-2">
-                      <button onClick={restart} className="bg-theme-surface border border-theme-border p-3 rounded-2xl text-theme-dim shadow-xl active:scale-95 hover:text-theme-primary transition-colors">
+                    <div className="flex items-center gap-2">
+                      {getBacktrackSteps().length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleEditReport}
+                          className="bg-theme-surface border border-theme-border px-3.5 py-3 rounded-2xl text-theme-text shadow-xl active:scale-95 hover:text-theme-primary hover:border-theme-primary/50 transition-colors flex items-center gap-1.5 text-xs font-black uppercase tracking-wider"
+                          title="Edit and recheck VA"
+                        >
+                          <Pencil size={16} />
+                          <span>Edit</span>
+                        </button>
+                      )}
+                      <button onClick={restart} className="bg-theme-surface border border-theme-border p-3 rounded-2xl text-theme-dim shadow-xl active:scale-95 hover:text-theme-primary transition-colors" title="Start new log">
                         <RefreshCcw size={24} />
                       </button>
                     </div>
                   </div>
 
-                  <div className="bg-theme-surface p-8 rounded-[40px] border border-theme-border shadow-2xl font-mono text-lg leading-relaxed flex flex-col gap-2">
+                  <div className="bg-theme-surface p-8 rounded-[40px] border border-theme-border shadow-2xl font-mono text-lg leading-relaxed flex flex-col gap-3.5">
                     {patientName.trim() && (
-                      <div className="pb-4 mb-2 border-b border-theme-border/60 flex items-baseline gap-2.5">
+                      <div className="pb-4 mb-1 border-b border-theme-border/60 flex items-baseline gap-2.5">
                         <span className="text-xs font-black uppercase tracking-widest text-theme-primary font-sans shrink-0">PATIENT:</span>
                         <span className="text-xl font-black text-theme-text font-sans truncate">{patientName.trim()}</span>
                       </div>
@@ -1970,7 +2010,7 @@ export default function App() {
                        const scph = session[eye]?.['SCPH'];
                        const ccph = session[eye]?.['CCPH'];
                        
-                       const scVal = sc ? (sc.nonLetter || (sc.logMAR !== undefined ? logMARToSnellen(sc.logMAR) : '—')) : '—';
+                       const scVal = vaDataToSnellen(sc);
                        
                        const scNL = sc?.nonLetter?.toUpperCase() || '';
                        const isNonLetter = !!sc?.nonLetter;
@@ -1979,30 +2019,66 @@ export default function App() {
                        if (isLowVision) {
                          return (
                            <div key={eye} className="flex gap-4">
-                             <span className="font-black text-theme-primary w-12">{eye}:</span>
-                             <div className="flex flex-wrap gap-x-4 gap-y-1">
+                             <span className="font-black text-theme-primary w-12 shrink-0">{eye}:</span>
+                             <div className="flex flex-wrap gap-x-5 gap-y-2">
                                <span className="text-theme-dim font-medium">{scVal}</span>
                              </div>
                            </div>
                          );
                        }
 
-                       const ccVal = cc ? (cc.statusLabel === 'NICC' ? 'NICC' : (cc.nonLetter || (cc.logMAR !== undefined ? logMARToSnellen(cc.logMAR) : '—'))) : '—';
-                       const phVal = (scph || ccph) ? 
+                       const phData = scph || ccph;
+                       const ccVal = cc ? (cc.statusLabel === 'NICC' ? 'NICC' : vaDataToSnellen(cc)) : '—';
+                       const phVal = phData ? 
                         ((scph?.statusLabel === 'NIPH' || ccph?.statusLabel === 'NIPH') ? 'NIPH' : 
-                         (scph?.nonLetter || ccph?.nonLetter || (scph && scph.logMAR !== undefined ? logMARToSnellen(scph.logMAR) : (ccph && ccph.logMAR !== undefined ? logMARToSnellen(ccph.logMAR) : '—')))) 
+                         vaDataToSnellen(phData)) 
                         : '—';
+                       const formatTestDistance = (dist?: number) => {
+                         if (dist === undefined) return '';
+                         return dist === 0.5 ? '½m' : `${dist}m`;
+                       };
 
                        return (
-                         <div key={eye} className="flex gap-4">
-                           <span className="font-black text-theme-primary w-12">{eye}:</span>
-                           <div className="flex flex-wrap gap-x-4 gap-y-1">
-                             <span className="text-theme-dim font-medium">
-                               {isNonLetter ? '' : <span className="text-theme-dim/50 uppercase text-[10px] mr-1 font-sans">sc</span>}
-                               {scVal}
-                             </span>
-                             {cc && <span className="text-theme-dim font-medium"><span className="text-theme-dim/50 uppercase text-[10px] mr-1 font-sans">cc</span>{ccVal}</span>}
-                             {(scph || ccph) && <span className="text-theme-dim font-medium"><span className="text-theme-dim/50 uppercase text-[10px] mr-1 font-sans">ph</span>{phVal}</span>}
+                         <div key={eye} className="flex gap-4 items-start">
+                           <span className="font-black text-theme-primary w-12 shrink-0">{eye}:</span>
+                           <div className="flex flex-wrap gap-x-6 gap-y-2.5">
+                             <div className="flex flex-col leading-tight">
+                               <span className="text-theme-dim font-medium">
+                                 {isNonLetter ? '' : <span className="text-theme-dim/50 uppercase text-[10px] mr-1 font-sans">sc</span>}
+                                 {scVal}
+                               </span>
+                               {!isNonLetter && sc?.testDistance !== undefined && (
+                                 <span className="text-theme-primary text-sm sm:text-base font-sans font-extrabold mt-0.5">
+                                   @{formatTestDistance(sc.testDistance)}
+                                 </span>
+                               )}
+                             </div>
+                             {cc && (
+                               <div className="flex flex-col leading-tight">
+                                 <span className="text-theme-dim font-medium">
+                                   <span className="text-theme-dim/50 uppercase text-[10px] mr-1 font-sans">cc</span>
+                                   {ccVal}
+                                 </span>
+                                 {!cc.nonLetter && cc.testDistance !== undefined && (
+                                   <span className="text-theme-primary text-sm sm:text-base font-sans font-extrabold mt-0.5">
+                                     @{formatTestDistance(cc.testDistance)}
+                                   </span>
+                                 )}
+                               </div>
+                             )}
+                             {phData && (
+                               <div className="flex flex-col leading-tight">
+                                 <span className="text-theme-dim font-medium">
+                                   <span className="text-theme-dim/50 uppercase text-[10px] mr-1 font-sans">ph</span>
+                                   {phVal}
+                                 </span>
+                                 {!phData.nonLetter && phData.testDistance !== undefined && (
+                                   <span className="text-theme-primary text-sm sm:text-base font-sans font-extrabold mt-0.5">
+                                     @{formatTestDistance(phData.testDistance)}
+                                   </span>
+                                 )}
+                               </div>
+                             )}
                            </div>
                          </div>
                        );
@@ -2275,7 +2351,7 @@ export default function App() {
           <motion.div 
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            className="h-full flex flex-col justify-between py-3 px-4 max-w-sm mx-auto w-full gap-2.5 overflow-hidden"
+            className="min-h-full flex flex-col justify-between py-3 px-4 max-w-sm mx-auto w-full gap-2.5"
           >
             <div className="space-y-0.5 text-center shrink-0">
               <h2 className="text-2xl font-black tracking-tighter uppercase italic text-theme-primary leading-none">SETUP</h2>
@@ -2329,6 +2405,38 @@ export default function App() {
                     aria-label="Accent color hue slider"
                     className="w-full accent-hue-slider cursor-pointer"
                   />
+                </div>
+
+                {/* Automatic Quick VA Toggle */}
+                <div className="pt-3 border-t border-theme-border/60 flex items-center justify-between gap-3">
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-theme-text font-black uppercase text-xs sm:text-sm italic leading-tight">
+                      Auto Quick VA
+                    </span>
+                    <span className="text-theme-dim text-[9px] uppercase font-mono tracking-wider leading-snug">
+                      {autoQuickVA ? 'PGH Rule Active (≥3/5 → 5/5)' : 'Standard ETDRS Scoring'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={autoQuickVA}
+                    aria-label="Toggle automatic Quick VA rule"
+                    onClick={handleToggleAutoQuickVA}
+                    className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-200 cursor-pointer active:scale-95 ${
+                      autoQuickVA
+                        ? 'bg-theme-primary border-theme-primary'
+                        : 'bg-theme-bg border-theme-border'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 rounded-full shadow-md transition-transform duration-200 ${
+                        autoQuickVA
+                          ? 'translate-x-6 bg-white'
+                          : 'translate-x-1 bg-theme-dim'
+                      }`}
+                    />
+                  </button>
                 </div>
               </div>
 
@@ -2391,7 +2499,7 @@ export default function App() {
                       </span>
                     </div>
                     <span className="text-2xl sm:text-3xl font-black text-theme-text tracking-tighter font-mono leading-none mt-0.5">
-                      {notationMode === 'snellen' ? logMARToSnellen(currentLogMAR) : currentLogMAR}
+                      {notationMode === 'snellen' ? (lettersAndDistanceToSnellen(totalCorrect, testDistance) ?? logMARToSnellen(currentLogMAR)) : currentLogMAR}
                     </span>
                   </button>
 
@@ -2851,6 +2959,91 @@ export default function App() {
                   Reset & Cancel
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Startup ETDRS Scoring Disclaimer Modal */}
+      <AnimatePresence>
+        {showDisclaimerModal && (
+          <div className="fixed inset-0 z-[260] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="etdrs-disclaimer-title"
+              className="bg-theme-surface border border-theme-border rounded-[28px] max-w-sm w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-2xl space-y-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-theme-primary block">
+                    Before You Start
+                  </span>
+                  <h3 id="etdrs-disclaimer-title" className="text-lg font-black uppercase italic text-theme-text tracking-tight leading-tight">
+                    ETDRS Scoring Guide
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeDisclaimerModal}
+                  aria-label="Close scoring notice"
+                  className="p-1.5 rounded-full bg-theme-bg border border-theme-border text-theme-dim hover:text-theme-text transition-colors shrink-0"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-2.5 text-xs sm:text-[13px] text-theme-text leading-snug">
+                <div className="p-3 rounded-2xl bg-theme-bg border border-theme-border space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-theme-primary block">
+                    ETDRS Guidelines
+                  </span>
+                  <p className="text-theme-dim">
+                    This calculator <strong className="text-theme-text font-bold">counts every missed letter</strong> across all lines tested (based on ETDRS guidelines)
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-theme-primary/10 border border-theme-primary/25 space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-theme-primary block">
+                    For Quick VA (followed by PGH)
+                  </span>
+                  <p className="text-theme-dim">
+                    If a patient moves on to the next line (from answering ≥3/5 correct) <strong className="text-theme-text font-bold"> AND </strong> is able to answer a correct letter from that next line, <strong className="text-theme-text font-bold"> MANUALLY credit the previous line as perfect 5/5 </strong>
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-theme-bg border border-theme-border space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-theme-primary block">
+                    Automatic Quick VA Switch
+                  </span>
+                  <p className="text-theme-dim">
+                    There is a switch in the <strong className="text-theme-text font-bold">Setup</strong> menu (<strong className="text-theme-text font-bold">Auto Quick VA</strong>) to make this Quick VA rule automatic.
+                  </p>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2.5 min-h-[44px] px-1 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={dontShowDisclaimerAgain}
+                  onChange={(e) => setDontShowDisclaimerAgain(e.target.checked)}
+                  className="w-4 h-4 rounded border-theme-border accent-theme-primary cursor-pointer shrink-0"
+                />
+                <span className="text-xs font-bold text-theme-dim">
+                  Don&apos;t show this again
+                </span>
+              </label>
+
+              <button
+                type="button"
+                onClick={closeDisclaimerModal}
+                className="w-full py-3.5 rounded-2xl bg-theme-primary text-white font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+              >
+                Got It
+              </button>
             </motion.div>
           </div>
         )}
